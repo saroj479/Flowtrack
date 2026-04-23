@@ -54,6 +54,7 @@ POLL_INTERVAL   = 1      # seconds between window-title polls
 PURGE_HOURS     = 48     # screenshots older than this are deleted
 IMG_WIDTH       = 1000   # resize screenshots to this width (px)
 IMG_QUALITY     = 60     # JPEG quality (0-100)
+SCREENSHOT_MAX_GB = 3    # hard cap for screenshot storage
 
 # ── Directory setup ──────────────────────────────────────────────────────────────
 BASE_DIR.mkdir(parents=True, exist_ok=True)
@@ -212,6 +213,40 @@ def purge_old_screenshots() -> None:
         log.info("Purged %d screenshot(s) older than %d hours.", purged, PURGE_HOURS)
 
 
+def enforce_screenshot_storage_cap(max_gb: float = SCREENSHOT_MAX_GB) -> None:
+    """Keep screenshots under max_gb by deleting oldest files first."""
+    cap_bytes = int(max_gb * 1024 * 1024 * 1024)
+    files = [
+        f for f in SCREENSHOTS_DIR.glob("*")
+        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png")
+    ]
+    if not files:
+        return
+
+    total = sum(f.stat().st_size for f in files)
+    if total <= cap_bytes:
+        return
+
+    deleted = 0
+    # Delete oldest screenshots first to preserve recent context.
+    for f in sorted(files, key=lambda p: p.stat().st_mtime):
+        try:
+            size = f.stat().st_size
+            f.unlink()
+            total -= size
+            deleted += 1
+            if total <= cap_bytes:
+                break
+        except OSError as exc:
+            log.warning("Could not delete %s during cap enforcement: %s", f, exc)
+
+    log.info(
+        "Storage cap enforced: deleted %d screenshot(s), now %.2f GB.",
+        deleted,
+        total / (1024 * 1024 * 1024),
+    )
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 #  Logging
 # ════════════════════════════════════════════════════════════════════════════════
@@ -262,6 +297,7 @@ def main() -> None:
 
     # Module 2: purge old screenshots on every startup
     purge_old_screenshots()
+    enforce_screenshot_storage_cap()
 
     last_title:    str   = ""
     last_log_time: float = time.monotonic()
@@ -279,6 +315,7 @@ def main() -> None:
                 duration   = now - window_start
                 event_type = "change" if title_changed else "interval"
                 screenshot = take_screenshot()
+                enforce_screenshot_storage_cap()
 
                 append_log_entry(title, app, event_type, screenshot, duration)
 

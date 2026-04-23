@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -30,6 +32,12 @@ ANALYZE_SCRIPT  = str(BASE_DIR / "analyze.py")
 SERVICE_NAME    = "focusaudit"
 HOST            = "127.0.0.1"   # localhost only — never 0.0.0.0
 PORT            = 7070
+SCREENSHOT_CAP_GB = 3
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +90,137 @@ def storage_stats() -> dict:
         "screenshots_mb":   _mb(SCREENSHOTS_DIR, "*.jpg"),
         "logs_kb":          round(_mb(LOG_DIR, "*.jsonl") * 1024, 1),
         "screenshot_count": sc_count,
+        "cap_gb":           SCREENSHOT_CAP_GB,
     }
+
+
+def sync_json_to_cloud(provider: str, target: str, api_key: str) -> dict:
+    """Upload all JSONL logs to a user-selected cloud target."""
+    provider = provider.lower().strip()
+    payload = {
+        "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "logs": {},
+    }
+    for f in sorted(LOG_DIR.glob("*.jsonl")):
+        payload["logs"][f.name] = f.read_text(encoding="utf-8")
+
+    data_text = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    if provider == "webhook":
+        if not target:
+            return {"ok": False, "error": "Webhook URL is required."}
+        req = urllib.request.Request(
+            target,
+            data=data_text.encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30):
+                return {"ok": True, "message": "JSON backup sent to webhook."}
+        except urllib.error.URLError as exc:
+            return {"ok": False, "error": f"Webhook upload failed: {exc}"}
+
+    if provider == "gist":
+        if not api_key:
+            return {"ok": False, "error": "GitHub token is required for gist backup."}
+        files = {
+            f"flowtrack_logs_{datetime.date.today().isoformat()}.json": {
+                "content": data_text
+            }
+        }
+        body = json.dumps({
+            "description": "Flowtrack JSON backup",
+            "public": False,
+            "files": files,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.github.com/gists",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/vnd.github+json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                gist = json.loads(resp.read())
+                return {"ok": True, "message": "JSON backup uploaded to private gist.", "url": gist.get("html_url", "")}
+        except urllib.error.URLError as exc:
+            return {"ok": False, "error": f"Gist upload failed: {exc}"}
+
+    return {"ok": False, "error": "Unsupported provider. Use gist or webhook."}
+
+
+def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: str = "") -> str | None:
+    provider = provider.lower().strip()
+    try:
+        if provider == "ollama":
+            payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or OLLAMA_URL,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read()).get("response", "").strip()
+
+        if provider == "openai":
+            if not api_key:
+                return None
+            payload = json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or OPENAI_URL,
+                data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                return data["choices"][0]["message"]["content"].strip()
+
+        if provider == "anthropic":
+            if not api_key:
+                return None
+            payload = json.dumps({
+                "model": model,
+                "max_tokens": 800,
+                "messages": [{"role": "user", "content": prompt}],
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or ANTHROPIC_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                parts = data.get("content", [])
+                return parts[0].get("text", "").strip() if parts else None
+
+        if provider == "gemini":
+            if not api_key:
+                return None
+            url = (base_url or GEMINI_URL_TMPL).format(model=model, key=api_key)
+            payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (urllib.error.URLError, json.JSONDecodeError, OSError, KeyError, IndexError, TypeError):
+        return None
+    return None
 
 
 def today_events() -> list[dict]:
@@ -315,8 +453,18 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <button class="btn btn-muted"  onclick="runAnalysis(true)">🧠 Run with Ollama AI</button>
       <div class="sep"></div>
       <button class="btn btn-muted"  onclick="openFolder()">🗂 Open Screenshots</button>
+      <button class="btn btn-muted"  onclick="syncJson()">☁ Backup JSON</button>
       <button class="btn btn-muted"  onclick="window.open('/api/logs?limit=500','_blank')">📄 Raw Log JSON</button>
     </div>
+    <div class="ctrl-row" style="margin-top:12px">
+      <select id="syncProvider" class="btn btn-muted" style="padding:7px 10px">
+        <option value="gist">GitHub Gist (private)</option>
+        <option value="webhook">Webhook URL</option>
+      </select>
+      <input id="syncTarget" placeholder="Webhook URL (only for webhook provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="syncApiKey" type="password" placeholder="GitHub token (for gist provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+    </div>
+    <div id="syncMsg" style="margin-top:8px;font-size:11px;color:var(--muted)">Cloud backup is optional and disabled by default.</div>
   </div>
 
   <!-- ── Live Log + Screenshots ── -->
@@ -357,6 +505,32 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <button class="btn btn-muted" style="margin-left:auto" onclick="scrollToTop('analysisOut')">↑ Top</button>
     </div>
     <div class="analysis-output ao-done" id="analysisOut">No analysis run yet. Click "Run Analysis" above.</div>
+  </div>
+
+  <div class="analysis">
+    <div class="analysis-toolbar">
+      <strong style="font-size:13px">💬 Ask AI About Your Patterns</strong>
+      <span style="font-size:11px;color:var(--muted)">Provider and key are used in-memory only</span>
+    </div>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
+      <select id="chatProvider" class="btn btn-muted" style="padding:7px 10px">
+        <option value="ollama">Ollama</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <input id="chatModel" placeholder="Model, for example llama3 or gpt-4o-mini" value="llama3" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="chatApiKey" type="password" placeholder="API key (not needed for Ollama)" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="chatBaseUrl" placeholder="Custom base URL (optional)" style="min-width:220px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+    </div>
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border)">
+      <textarea id="chatPrompt" placeholder="Ask anything. Example: What is my biggest distraction pattern this week and what should I change tomorrow?" style="width:100%;min-height:88px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:12px;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-accent" onclick="chatAsk()">Send</button>
+        <button class="btn btn-muted" onclick="fillChatTemplate()">Use suggestion template</button>
+      </div>
+    </div>
+    <div class="analysis-output ao-done" id="chatOut">No chat yet.</div>
   </div>
 
 </main>
@@ -507,6 +681,69 @@ function openFolder() {
   api('/api/open-screenshots', {method: 'POST'});
 }
 
+async function syncJson() {
+  const provider = document.getElementById('syncProvider').value;
+  const target   = document.getElementById('syncTarget').value.trim();
+  const apiKey   = document.getElementById('syncApiKey').value.trim();
+  const msg = document.getElementById('syncMsg');
+  msg.style.color = 'var(--yellow)';
+  msg.textContent = 'Running cloud backup...';
+  const d = await api('/api/sync-json', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({provider, target, api_key: apiKey}),
+  });
+  if (!d) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Backup failed: no response.';
+    return;
+  }
+  if (d.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = d.url ? (d.message + ' ' + d.url) : d.message;
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = d.error || 'Backup failed.';
+  }
+}
+
+function fillChatTemplate() {
+  document.getElementById('chatPrompt').value =
+    'Analyze my recent Flowtrack behavior and give me: 1) top 3 focus problems with numbers, 2) practical fixes for tomorrow, 3) one simple rule I should enforce.';
+}
+
+async function chatAsk() {
+  const prompt = document.getElementById('chatPrompt').value.trim();
+  if (!prompt) return;
+  const out = document.getElementById('chatOut');
+  out.className = 'analysis-output ao-running';
+  out.textContent = 'Thinking...';
+  const payload = {
+    provider: document.getElementById('chatProvider').value,
+    model: document.getElementById('chatModel').value.trim() || 'llama3',
+    api_key: document.getElementById('chatApiKey').value.trim(),
+    base_url: document.getElementById('chatBaseUrl').value.trim(),
+    prompt,
+  };
+  const d = await api('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!d) {
+    out.className = 'analysis-output ao-error';
+    out.textContent = 'No response from backend.';
+    return;
+  }
+  if (d.ok) {
+    out.className = 'analysis-output ao-done';
+    out.textContent = d.reply;
+  } else {
+    out.className = 'analysis-output ao-error';
+    out.textContent = d.error || 'Chat failed.';
+  }
+}
+
 // ── Modal ─────────────────────────────────────────────────────────────────────
 function openModal(src) {
   document.getElementById('modalImg').src = src;
@@ -649,6 +886,40 @@ class Handler(BaseHTTPRequestHandler):
                 stderr=subprocess.DEVNULL,
             )
             self._json({"ok": True})
+
+        elif path == "/api/sync-json":
+          provider = str(body.get("provider", "gist"))
+          target = str(body.get("target", ""))
+          api_key = str(body.get("api_key", ""))
+          result = sync_json_to_cloud(provider=provider, target=target, api_key=api_key)
+          self._json(result)
+
+        elif path == "/api/chat":
+          provider = str(body.get("provider", "ollama"))
+          model = str(body.get("model", "llama3"))
+          api_key = str(body.get("api_key", ""))
+          base_url = str(body.get("base_url", ""))
+          prompt = str(body.get("prompt", "")).strip()
+          if not prompt:
+            self._json({"ok": False, "error": "Prompt is empty."}, code=400)
+            return
+          # Add short context so model responses stay grounded.
+          entries = today_events()
+          context = {
+            "events_today": len(entries),
+            "focus_score": _quick_focus(entries),
+            "top_titles": [e.get("title", "")[:120] for e in entries[-12:]],
+          }
+          final_prompt = (
+            "You are a productivity coach. Use this Flowtrack context first, then answer the user.\n"
+            f"Context JSON:\n{json.dumps(context, ensure_ascii=False)}\n\n"
+            f"User question:\n{prompt}\n"
+          )
+          reply = query_llm(final_prompt, provider=provider, model=model, api_key=api_key, base_url=base_url)
+          if reply:
+            self._json({"ok": True, "reply": reply})
+          else:
+            self._json({"ok": False, "error": "LLM request failed. Check provider, model, API key, and network."})
 
         else:
             self.send_response(404)

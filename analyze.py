@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -36,6 +37,9 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 # ── Ollama ───────────────────────────────────────────────────────────────────────
 OLLAMA_URL   = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3"
+OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 # ── Pattern constants ─────────────────────────────────────────────────────────────
 RAPID_SWITCH_THRESHOLD = 5    # tab changes …
@@ -432,24 +436,99 @@ Be direct, data-driven, and specific. Reference actual numbers.
 #  Ollama integration
 # ════════════════════════════════════════════════════════════════════════════════
 
-def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str | None:
-    payload = json.dumps({
-        "model":   model,
-        "prompt":  prompt,
-        "stream":  False,
-        "options": {"num_ctx": 4096},
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        OLLAMA_URL,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+def query_llm(
+    prompt: str,
+    provider: str,
+    model: str,
+    api_key: str,
+    base_url: str = "",
+) -> str | None:
+    provider = provider.lower().strip()
+
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read()).get("response", "").strip()
-    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        if provider == "ollama":
+            payload = json.dumps({
+                "model":   model,
+                "prompt":  prompt,
+                "stream":  False,
+                "options": {"num_ctx": 4096},
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or OLLAMA_URL,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read()).get("response", "").strip()
+
+        if provider == "openai":
+            if not api_key:
+                return None
+            payload = json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or OPENAI_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                return data["choices"][0]["message"]["content"].strip()
+
+        if provider == "anthropic":
+            if not api_key:
+                return None
+            payload = json.dumps({
+                "model": model,
+                "max_tokens": 1200,
+                "messages": [{"role": "user", "content": prompt}],
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                base_url or ANTHROPIC_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                parts = data.get("content", [])
+                if parts and isinstance(parts, list):
+                    return parts[0].get("text", "").strip()
+                return None
+
+        if provider == "gemini":
+            if not api_key:
+                return None
+            url = (base_url or GEMINI_URL_TMPL).format(model=model, key=api_key)
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    except (urllib.error.URLError, json.JSONDecodeError, OSError, KeyError, IndexError, TypeError):
         return None
+
+    return None
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -457,10 +536,13 @@ def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str | None:
 # ════════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FocusAudit AI Pattern Analyzer")
+    parser = argparse.ArgumentParser(description="Flowtrack AI Pattern Analyzer")
     parser.add_argument("--days",   type=int, default=7, help="Days of data to analyse (default: 7)")
     parser.add_argument("--no-ai",  action="store_true", help="Skip Ollama query")
-    parser.add_argument("--model",  default=OLLAMA_MODEL, help=f"Ollama model (default: {OLLAMA_MODEL})")
+    parser.add_argument("--provider", default="ollama", choices=["ollama", "openai", "anthropic", "gemini"], help="LLM provider")
+    parser.add_argument("--model",  default=OLLAMA_MODEL, help=f"Model name (default: {OLLAMA_MODEL})")
+    parser.add_argument("--api-key", default="", help="API key for cloud providers")
+    parser.add_argument("--base-url", default="", help="Optional custom API base URL")
     args = parser.parse_args()
 
     print("Flowtrack — AI Pattern Analyzer")
@@ -499,9 +581,24 @@ def main() -> None:
     prompt_path  = REPORT_DIR / f"ai_prompt_{today}.txt"
     prompt_path.write_text(ai_prompt, encoding="utf-8")
 
-    # Try Ollama
-    print(f"\nQuerying Ollama ({args.model}) — timeout 120 s …")
-    ai_response = query_ollama(ai_prompt, model=args.model)
+    key = args.api_key.strip()
+    if not key:
+        env_map = {
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+        }
+        if args.provider in env_map:
+            key = os.environ.get(env_map[args.provider], "")
+
+    print(f"\nQuerying {args.provider} ({args.model}) with timeout 120 s …")
+    ai_response = query_llm(
+        ai_prompt,
+        provider=args.provider,
+        model=args.model,
+        api_key=key,
+        base_url=args.base_url,
+    )
 
     if ai_response:
         print("\n" + "=" * 60)
@@ -512,8 +609,8 @@ def main() -> None:
         ai_path.write_text(ai_response, encoding="utf-8")
         print(f"\nAI report saved → {ai_path}")
     else:
-        print("\nOllama unavailable or timed out.")
-        print("Paste the prompt below into any web AI (ChatGPT, Claude, Gemini …)")
+        print("\nLLM unavailable or request failed.")
+        print("Paste the prompt below into any web AI (ChatGPT, Claude, Gemini, etc.)")
         print(f"\nPrompt also saved → {prompt_path}\n")
         print("─" * 60)
         print(ai_prompt)
