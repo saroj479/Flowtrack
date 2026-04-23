@@ -686,6 +686,10 @@ tr:hover td{background:rgba(0,217,255,.05)}
       <button class="btn btn-green"  id="btnStart"   onclick="svc('start')">▶ Start Tracker</button>
       <button class="btn btn-red"    id="btnStop"    onclick="svc('stop')">■ Stop Tracker</button>
       <button class="btn btn-yellow" id="btnRestart" onclick="svc('restart')">↺ Restart</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:8px;cursor:pointer" title="Auto-start tracker and dashboard on login (Linux systemd only)">
+        <input type="checkbox" id="autoStartToggle" onchange="toggleAutoStart(this.checked)" style="accent-color:var(--accent-3)">
+        Auto-start on boot
+      </label>
       <div class="sep"></div>
       <button class="btn btn-accent" onclick="runAnalysis(false)">📊 Run Text Analysis</button>
       <button class="btn btn-muted"  onclick="runAnalysis(true)">🤖 Run with Selected AI</button>
@@ -936,6 +940,36 @@ async function svc(action) {
     body: JSON.stringify({action}),
   });
   setTimeout(fetchStatus, 1800);
+}
+
+async function toggleAutoStart(enable) {
+  const action = enable ? 'enable' : 'disable';
+  try {
+    const r = await api('/api/service', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action}),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      document.getElementById('svcTxt').textContent = d.error || 'Auto-start change failed';
+      document.getElementById('autoStartToggle').checked = !enable;
+    } else {
+      document.getElementById('svcTxt').textContent = enable ? 'Auto-start enabled (starts on login)' : 'Auto-start disabled';
+    }
+  } catch(e) {
+    document.getElementById('autoStartToggle').checked = !enable;
+  }
+}
+
+async function checkAutoStart() {
+  try {
+    const r = await fetch('/api/autostart');
+    if (!r.ok) return;
+    const d = await r.json();
+    const cb = document.getElementById('autoStartToggle');
+    if (cb) cb.checked = d.enabled;
+  } catch(e) {}
 }
 
 // ── Analysis ──────────────────────────────────────────────────────────────────
@@ -1504,6 +1538,7 @@ updateBackupDateUI();
 updateUploadUI();
 updateChatPlaceholders();
 updateAnalysisPlaceholders();
+checkAutoStart();
 
 // Load latest saved report on first open
 api('/api/analysis').then(d => {
@@ -1563,6 +1598,13 @@ class Handler(BaseHTTPRequestHandler):
             svc  = service_status()
             stor = storage_stats()
             self._json({**svc, **stor})
+
+        elif path == "/api/autostart":
+            if platform.system() != "Linux":
+                self._json({"enabled": False, "supported": False})
+                return
+            result = _sh(["systemctl", "--user", "is-enabled", SERVICE_NAME])
+            self._json({"enabled": result.strip() == "enabled", "supported": True})
 
         elif path == "/api/logs":
             limit   = min(int(qs.get("limit", ["100"])[0]), 500)
@@ -1624,6 +1666,24 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError as exc:
                     self._json({"ok": False, "error": f"Service action failed: {exc}"}, code=500)
                     return
+            elif action in ("enable", "disable"):
+                if platform.system() != "Linux":
+                    self._json({"ok": False, "error": "Auto-start uses systemd and is Linux-only."}, code=400)
+                    return
+                units = [SERVICE_NAME, "flowtrack-dashboard.service"]
+                for unit in units:
+                    try:
+                        subprocess.run(
+                            ["systemctl", "--user", action, unit],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                        )
+                    except OSError:
+                        pass
+                enabled = action == "enable"
+                self._json({"ok": True, "enabled": enabled})
+                return
             self._json({"ok": True})
 
         elif path == "/api/analyze":

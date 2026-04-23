@@ -1,53 +1,38 @@
 # Flowtrack
 
-Private local productivity tracker with a browser dashboard.
+<p align="center">
+  <img src="https://img.shields.io/github/license/saroj479/Flowtrack?color=00d9ff" alt="MIT License">
+  <img src="https://img.shields.io/github/stars/saroj479/Flowtrack?style=flat&color=ffbe0b" alt="Stars">
+  <img src="https://img.shields.io/github/issues/saroj479/Flowtrack?color=ff006e" alt="Issues">
+  <img src="https://img.shields.io/github/actions/workflow/status/saroj479/Flowtrack/ci.yml?label=CI&color=00ff88" alt="CI">
+  <img src="https://img.shields.io/badge/python-3.10%2B-8338ec" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-00d9ff" alt="Platform">
+  <img src="https://img.shields.io/badge/AI-Ollama%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Gemini-ff006e" alt="AI Providers">
+</p>
 
-Flowtrack tracks active windows, captures compressed grayscale screenshots, measures context switching, and gives AI feedback on focus patterns.
+<p align="center">
+  <strong>Local-first productivity tracker with an AI-powered browser dashboard.</strong><br>
+  All data stays on your machine. No cloud required. No accounts. No subscriptions.
+</p>
 
-## Highlights
+---
 
-- Hard screenshot storage cap at 3 GB
-- Automatic screenshot cleanup by age (48 hours) and by size cap
-- JSONL logs kept forever unless user deletes them
-- Browser dashboard at http://127.0.0.1:7070
-- Start, stop, restart service from dashboard
-- Live log table, screenshot gallery, RAM and storage cards
-- AI analysis report from dashboard
-- AI chat panel with provider selection
-- Optional cloud JSON backup to private GitHub Gist or webhook
+## What it does
 
-## Data model
+Flowtrack runs as a background service and:
 
-Flowtrack stores data in ~/.focusaudit/
+- **Tracks active windows** — app name, window title, timestamps, and context switches
+- **Captures screenshots** — grayscale JPEG, compressed, auto-cleaned (48h max age, 3 GB hard cap)
+- **Serves a browser dashboard** at `http://127.0.0.1:7070` with live logs, screenshot gallery, and storage stats
+- **Runs AI analysis** on your activity patterns using Ollama (local), OpenAI, Anthropic, or Gemini
+- **AI chat panel** — ask questions about your own focus data
+- **Backup your logs** — download as JSONL or push to a private GitHub Gist or webhook
 
-- logs/*.jsonl: permanent activity logs
-- screenshots/*.jpg: compressed screenshots, auto cleaned
-- reports/*.txt: analysis outputs
-- tracker.log and dashboard.log: service logs
+Everything binds to `127.0.0.1` only. Nothing is ever sent anywhere unless you explicitly trigger a backup.
 
-Storage policy:
+---
 
-- Screenshots older than 48 hours are deleted
-- Screenshots are also capped to 3 GB max
-- Oldest screenshots are removed first when cap is exceeded
-- JSONL logs are never deleted automatically
-
-## Privacy and security
-
-- Dashboard listens on 127.0.0.1 only
-- No public network exposure by default
-- API keys are not stored by default
-- API keys sent from dashboard are used in memory for request execution
-- Screenshot file access is filename validated to block path traversal
-- Service actions are command whitelisted: start, stop, restart only
-
-Important:
-
-- Window titles may contain sensitive text
-- If you open banking or password reset tabs, the title may appear in JSON logs
-- Exclude sensitive apps by editing tracker.py if needed
-
-## Install on Ubuntu or Debian
+## Quick start (Linux / Ubuntu / Debian)
 
 ```bash
 git clone https://github.com/saroj479/Flowtrack.git
@@ -57,84 +42,86 @@ bash install.sh
 
 After install:
 
-- Tracker service: focusaudit.service
-- Dashboard service: flowtrack-dashboard.service
-- Open UI: http://127.0.0.1:7070
-- Shortcut command: flowtrack
-
-## How to use
-
-Open dashboard:
-
 ```bash
-flowtrack
+flowtrack          # opens http://127.0.0.1:7070 in your browser
 ```
 
-Optional CLI commands:
+Tracker and dashboard run as systemd user services automatically.
 
-```bash
-# live activity JSON
-tail -f ~/.focusaudit/logs/$(date +%Y-%m-%d).jsonl
+---
 
-# run analysis without LLM
-~/.focusaudit/venv/bin/python3 ~/.focusaudit/analyze.py --no-ai
+## Data stored
 
-# run analysis with default Ollama model
-~/.focusaudit/venv/bin/python3 ~/.focusaudit/analyze.py
+All data lives in `~/.focusaudit/`:
 
-# run analysis with another provider
-~/.focusaudit/venv/bin/python3 ~/.focusaudit/analyze.py --provider openai --model gpt-4o-mini --api-key YOUR_KEY
+| Path | Content |
+|------|---------|
+| `logs/YYYY-MM-DD.jsonl` | Activity events (permanent unless deleted) |
+| `screenshots/*.jpg` | Compressed grayscale screenshots (auto-cleaned) |
+| `reports/analysis_*.txt` | AI analysis outputs |
+| `tracker.log` / `dashboard.log` | Service logs |
 
-# view screenshots
-eog ~/.focusaudit/screenshots/
-```
+Storage policy: screenshots > 48h are deleted; hard cap at 3 GB (oldest first). JSONL logs are never auto-deleted.
 
-## Cloud JSON backup
-
-In dashboard:
-
-1. Choose backup provider: GitHub Gist or Webhook
-2. Add token or webhook URL
-3. Click Backup JSON
-
-Notes:
-
-- Gist backups are created as private gists
-- Webhook backups send a JSON payload with all JSONL content
-- This feature is optional and off by default
+---
 
 ## AI providers
 
-Supported in analysis and chat:
+**Ollama is the default — no API key needed.**
 
-- Ollama (local, no API key)
-- OpenAI
-- Anthropic
-- Gemini
+| Provider | Key required | Default model |
+|----------|-------------|---------------|
+| Ollama (local) | No | `llama3` |
+| OpenAI | Yes | `gpt-4o-mini` |
+| Anthropic | Yes | `claude-3-haiku-20240307` |
+| Gemini | Yes | `gemini-1.5-flash` |
 
-Defaults:
+Install Ollama: [ollama.com](https://ollama.com) → `ollama pull llama3`
 
-- Chat provider defaults to Ollama
-- Analysis provider defaults to Ollama
-- Default Ollama model is llama3
-- API key is not required for Ollama
+---
 
-You can still change provider, model, API key, and optional custom base URL at any time.
+## Privacy and security
 
-## Native Windows and macOS usage
+- Dashboard binds to `127.0.0.1` only — never exposed to the network
+- No telemetry, no analytics, no external connections by default
+- API keys used in-memory per request — never written to disk
+- Screenshot filenames validated to block path traversal
+- Service actions whitelisted to `start`, `stop`, `restart` only
+- Window titles may capture sensitive text (banking pages etc.) — add exclusions in `tracker.py`
 
-Flowtrack dashboard and analysis run natively on Windows and macOS.
+---
 
-Tracker integration notes:
+## Platform support
 
-- Linux: full service mode via systemd
-- Windows/macOS: run tracker manually from terminal
+| Platform | Tracker | Dashboard | Service management |
+|----------|---------|-----------|--------------------|
+| Linux (Ubuntu/Debian) | ✅ systemd auto | ✅ systemd auto | ✅ dashboard buttons |
+| macOS | ✅ manual terminal | ✅ manual terminal | terminal only |
+| Windows | ✅ manual terminal | ✅ manual terminal | terminal only |
 
-### Windows setup (native)
+### macOS setup
 
-1. Install Python 3.10+ from python.org
-2. Install Ollama from ollama.com/download/windows
-3. In PowerShell:
+```bash
+git clone https://github.com/saroj479/Flowtrack.git
+cd Flowtrack
+python3 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip mss Pillow
+ollama pull llama3
+```
+
+Terminal 1 — tracker:
+```bash
+source .venv/bin/activate && python3 tracker.py
+```
+
+Terminal 2 — dashboard:
+```bash
+source .venv/bin/activate && python3 dashboard.py
+```
+
+Open `http://127.0.0.1:7070`
+
+### Windows setup (PowerShell)
 
 ```powershell
 git clone https://github.com/saroj479/Flowtrack.git
@@ -144,88 +131,80 @@ python -m venv .venv
 pip install --upgrade pip mss Pillow
 ```
 
-4. Start Ollama and pull model:
+Download Ollama from [ollama.com/download/windows](https://ollama.com/download/windows), then `ollama pull llama3`
 
+Terminal 1:
 ```powershell
-ollama pull llama3
-ollama run llama3
+.venv\Scripts\Activate.ps1; python tracker.py
 ```
 
-5. Start tracker and dashboard (manual mode):
-
+Terminal 2:
 ```powershell
-python tracker.py
+.venv\Scripts\Activate.ps1; python dashboard.py
 ```
 
-Open a second terminal:
+Open `http://127.0.0.1:7070`
 
-```powershell
-cd Flowtrack
-.venv\Scripts\Activate.ps1
-python dashboard.py
-```
+---
 
-Open http://127.0.0.1:7070 in browser.
-
-### macOS setup (native)
-
-1. Install Python 3.10+
-2. Install Ollama from ollama.com/download/mac
-3. In Terminal:
+## CLI usage
 
 ```bash
-git clone https://github.com/saroj479/Flowtrack.git
-cd Flowtrack
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip mss Pillow
+# Live activity stream
+tail -f ~/.focusaudit/logs/$(date +%Y-%m-%d).jsonl
+
+# Analysis without AI
+~/.focusaudit/venv/bin/python3 ~/.focusaudit/analyze.py --no-ai
+
+# Analysis with OpenAI
+~/.focusaudit/venv/bin/python3 ~/.focusaudit/analyze.py --provider openai --model gpt-4o-mini --api-key YOUR_KEY
 ```
 
-4. Start Ollama and pull model:
+---
 
-```bash
-ollama pull llama3
-ollama run llama3
-```
+## Cloud backup
 
-5. Start tracker and dashboard (manual mode):
+In the dashboard Backup section:
 
-```bash
-python3 tracker.py
-```
+1. Pick scope: **Today**, **All time**, or **Custom date range**
+2. Click **Download** — saves a `.jsonl` file to your machine
+3. Optional: select **GitHub Gist** or **Webhook** and click **Upload**
 
-Open a second terminal:
+---
 
-```bash
-cd Flowtrack
-source .venv/bin/activate
-python3 dashboard.py
-```
-
-Open http://127.0.0.1:7070 in browser.
-
-Important for Windows/macOS:
-
-- Service buttons in dashboard use systemd and are Linux-only
-- Start/stop tracker manually from terminal on Windows/macOS
-- All AI chat, AI analysis, backup download, and cloud backup features work in dashboard
-
-## Troubleshooting
-
-Service status:
+## Troubleshooting (Linux)
 
 ```bash
 systemctl --user status focusaudit
 systemctl --user status flowtrack-dashboard
-```
-
-Live service logs:
-
-```bash
-journalctl --user -u focusaudit -f
 journalctl --user -u flowtrack-dashboard -f
+curl http://localhost:11434/api/tags    # check Ollama
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+- Bugs → [GitHub Issues](https://github.com/saroj479/Flowtrack/issues) with the bug report template
+- Features → [GitHub Issues](https://github.com/saroj479/Flowtrack/issues) with the feature request template
+- Code → fork, branch, PR targeting `master`
+
+All PRs are reviewed and merged by [@saroj479](https://github.com/saroj479).
+
+---
+
+## Roadmap
+
+- [ ] Google Drive backup
+- [ ] Vision AI for screenshot analysis
+- [ ] Auto-start on boot option in dashboard
+- [ ] Incognito window detection
+- [ ] CSV export
+
+---
 
 ## License
 
-MIT. See LICENSE.
+[MIT](LICENSE) — Copyright (c) 2026 saroj479
