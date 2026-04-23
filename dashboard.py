@@ -277,7 +277,7 @@ _running = False
 _result: dict = {"status": "idle", "output": "No analysis run yet. Click Run Analysis."}
 
 
-def _start_analysis(use_ai: bool) -> None:
+def _start_analysis(use_ai: bool, provider: str = "", model: str = "", api_key: str = "") -> None:
     global _running, _result
 
     def _work() -> None:
@@ -286,6 +286,10 @@ def _start_analysis(use_ai: bool) -> None:
             cmd = [VENV_PYTHON, ANALYZE_SCRIPT]
             if not use_ai:
                 cmd.append("--no-ai")
+            elif provider:
+                cmd.extend(["--provider", provider, "--model", model or "gpt-4o-mini"])
+                if api_key:
+                    cmd.extend(["--api-key", api_key])
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             out = r.stdout + (("\n\nSTDERR:\n" + r.stderr) if r.stderr else "")
             _result = {"status": "done" if r.returncode == 0 else "error", "output": out}
@@ -449,22 +453,24 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <button class="btn btn-red"    id="btnStop"    onclick="svc('stop')">■ Stop Tracker</button>
       <button class="btn btn-yellow" id="btnRestart" onclick="svc('restart')">↺ Restart</button>
       <div class="sep"></div>
-      <button class="btn btn-accent" onclick="runAnalysis(false)">🤖 Run Analysis</button>
-      <button class="btn btn-muted"  onclick="runAnalysis(true)">🧠 Run with Ollama AI</button>
+      <button class="btn btn-accent" onclick="runAnalysis(false)">📊 Run Text Analysis</button>
+      <button class="btn btn-muted"  onclick="runAnalysis(true)">🤖 Run with Selected AI</button>
       <div class="sep"></div>
       <button class="btn btn-muted"  onclick="openFolder()">🗂 Open Screenshots</button>
       <button class="btn btn-muted"  onclick="syncJson()">☁ Backup JSON</button>
       <button class="btn btn-muted"  onclick="window.open('/api/logs?limit=500','_blank')">📄 Raw Log JSON</button>
     </div>
     <div class="ctrl-row" style="margin-top:12px">
-      <select id="syncProvider" class="btn btn-muted" style="padding:7px 10px">
-        <option value="gist">GitHub Gist (private)</option>
-        <option value="webhook">Webhook URL</option>
+      <label style="font-size:11px;color:var(--muted);font-weight:700">Cloud Backup (optional):</label>
+      <select id="syncProvider" class="btn btn-muted" style="padding:7px 10px" onchange="updateBackupUI()">
+        <option value="gist">GitHub Gist (private backup)</option>
+        <option value="webhook">Webhook URL (POST to your server)</option>
       </select>
-      <input id="syncTarget" placeholder="Webhook URL (only for webhook provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
-      <input id="syncApiKey" type="password" placeholder="GitHub token (for gist provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="syncTarget" placeholder="Webhook URL (required for webhook provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="">
+      <input id="syncApiKey" type="password" placeholder="GitHub token (required for gist provider)" style="flex:1;min-width:260px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="">
+      <button class="btn btn-muted" onclick="syncJson()">☁ Upload Now</button>
     </div>
-    <div id="syncMsg" style="margin-top:8px;font-size:11px;color:var(--muted)">Cloud backup is optional and disabled by default.</div>
+    <div id="syncMsg" style="margin-top:8px;font-size:11px;color:var(--muted)">Cloud backup is optional. Choose provider, add credentials, then click Upload.</div>
   </div>
 
   <!-- ── Live Log + Screenshots ── -->
@@ -500,10 +506,24 @@ tr:hover td{background:rgba(255,255,255,.025)}
   <!-- ── AI Analysis output ── -->
   <div class="analysis">
     <div class="analysis-toolbar">
-      <strong style="font-size:13px">🤖 Analysis Report</strong>
+      <strong style="font-size:13px">🤖 AI Analysis Report</strong>
       <span style="font-size:11px;color:var(--muted)" id="analysisMeta">Idle</span>
       <button class="btn btn-muted" style="margin-left:auto" onclick="scrollToTop('analysisOut')">↑ Top</button>
     </div>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:11px;color:var(--muted);font-weight:700">Provider for analysis:</label>
+      <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders()" style="padding:7px 10px">
+        <option value="none">No AI (text only)</option>
+        <option value="ollama">Ollama</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <input id="analysisModel" placeholder="Model name (e.g., gpt-4o-mini, claude-3-5-sonnet)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="gpt-4o-mini">
+      <input id="analysisApiKey" type="password" placeholder="API key for selected provider (leave empty to use environment variable)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <button class="btn btn-yellow" onclick="verifyAnalysisKey()">✓ Verify Key</button>
+    </div>
+    <div id="analysisKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
     <div class="analysis-output ao-done" id="analysisOut">No analysis run yet. Click "Run Analysis" above.</div>
   </div>
 
@@ -512,12 +532,12 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <strong style="font-size:13px">💬 Ask AI About Your Patterns</strong>
       <span style="font-size:11px;color:var(--muted)">Provider and key are used in-memory only</span>
     </div>
-    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
-      <select id="chatProvider" class="btn btn-muted" style="padding:7px 10px">
-        <option value="ollama">Ollama</option>
-        <option value="openai">OpenAI</option>
-        <option value="anthropic">Anthropic</option>
-        <option value="gemini">Gemini</option>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders()" style="padding:7px 10px">
+        <option value="ollama">Ollama (local, no key)</option>
+        <option value="openai">OpenAI (requires API key)</option>
+        <option value="anthropic">Anthropic (requires API key)</option>
+        <option value="gemini">Gemini (requires API key)</option>
       </select>
       <input id="chatModel" placeholder="Model, for example llama3 or gpt-4o-mini" value="llama3" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <input id="chatApiKey" type="password" placeholder="API key (not needed for Ollama)" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
@@ -528,8 +548,10 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-accent" onclick="chatAsk()">Send</button>
         <button class="btn btn-muted" onclick="fillChatTemplate()">Use suggestion template</button>
+        <button class="btn btn-yellow" onclick="verifyChatKey()" style="margin-left:auto">✓ Test Key</button>
       </div>
     </div>
+    <div id="chatKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
     <div class="analysis-output ao-done" id="chatOut">No chat yet.</div>
   </div>
 
@@ -645,10 +667,31 @@ async function svc(action) {
 async function runAnalysis(useAI) {
   setAnalysisUI('running', 'Starting analysis…');
   document.getElementById('analysisMeta').textContent = 'Running…';
+  
+  let provider = '';
+  let model = '';
+  let apiKey = '';
+  
+  if (useAI) {
+    provider = document.getElementById('analysisProvider').value;
+    model = document.getElementById('analysisModel').value.trim();
+    apiKey = document.getElementById('analysisApiKey').value.trim();
+    
+    if (provider !== 'none' && provider !== 'ollama' && !model) {
+      setAnalysisUI('error', 'Error: Model name is required for ' + provider);
+      return;
+    }
+  }
+  
   await api('/api/analyze', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ai: useAI}),
+    body: JSON.stringify({
+      ai: useAI,
+      provider: provider,
+      model: model,
+      api_key: apiKey,
+    }),
   });
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(pollAnalysis, 1500);
@@ -681,35 +724,208 @@ function openFolder() {
   api('/api/open-screenshots', {method: 'POST'});
 }
 
+function updateBackupUI() {
+  const provider = document.getElementById('syncProvider').value;
+  const target = document.getElementById('syncTarget');
+  const apiKey = document.getElementById('syncApiKey');
+  
+  if (provider === 'webhook') {
+    target.placeholder = 'Your webhook URL (e.g., https://example.com/webhook)';
+    target.style.display = 'block';
+    apiKey.placeholder = 'Leave empty for webhook';
+    apiKey.style.display = 'block';
+  } else {
+    target.placeholder = 'Leave empty for gist';
+    target.style.display = 'block';
+    apiKey.placeholder = 'Your GitHub token (required for gist)';
+    apiKey.style.display = 'block';
+  }
+}
+
 async function syncJson() {
   const provider = document.getElementById('syncProvider').value;
   const target   = document.getElementById('syncTarget').value.trim();
   const apiKey   = document.getElementById('syncApiKey').value.trim();
   const msg = document.getElementById('syncMsg');
+  
+  if (provider === 'gist' && !apiKey) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Error: GitHub token is required for Gist backup.';
+    return;
+  }
+  
+  if (provider === 'webhook' && !target) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Error: Webhook URL is required for webhook backup.';
+    return;
+  }
+  
   msg.style.color = 'var(--yellow)';
-  msg.textContent = 'Running cloud backup...';
+  msg.textContent = 'Uploading backup to ' + provider + '...';
+  
   const d = await api('/api/sync-json', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({provider, target, api_key: apiKey}),
   });
+  
   if (!d) {
     msg.style.color = 'var(--red)';
-    msg.textContent = 'Backup failed: no response.';
+    msg.textContent = 'Backup failed: no response from server.';
     return;
   }
+  
   if (d.ok) {
     msg.style.color = 'var(--green)';
-    msg.textContent = d.url ? (d.message + ' ' + d.url) : d.message;
+    const url = d.url ? ' - View: ' + d.url : '';
+    msg.textContent = '✓ ' + d.message + url;
   } else {
     msg.style.color = 'var(--red)';
-    msg.textContent = d.error || 'Backup failed.';
+    msg.textContent = 'Backup failed: ' + (d.error || 'Unknown error');
   }
 }
 
 function fillChatTemplate() {
   document.getElementById('chatPrompt').value =
     'Analyze my recent Flowtrack behavior and give me: 1) top 3 focus problems with numbers, 2) practical fixes for tomorrow, 3) one simple rule I should enforce.';
+}
+
+function updateChatPlaceholders() {
+  const provider = document.getElementById('chatProvider').value;
+  const keyInput = document.getElementById('chatApiKey');
+  const modelInput = document.getElementById('chatModel');
+  
+  const placeholders = {
+    'ollama': { key: 'Not needed for Ollama - leave empty', model: 'llama3, mistral, etc' },
+    'openai': { key: 'Your OpenAI API key (sk-...)', model: 'gpt-4o-mini, gpt-4o, o1-mini' },
+    'anthropic': { key: 'Your Anthropic API key', model: 'claude-3-5-sonnet-20241022' },
+    'gemini': { key: 'Your Google Gemini API key', model: 'gemini-2.0-flash, gemini-1.5-pro' }
+  };
+  
+  const placeholderSet = placeholders[provider] || placeholders['ollama'];
+  keyInput.placeholder = placeholderSet.key;
+  modelInput.placeholder = placeholderSet.model;
+  
+  // Update model value if switching to ollama
+  if (provider === 'ollama' && modelInput.value !== 'llama3') {
+    modelInput.value = 'llama3';
+  } else if (provider === 'openai' && modelInput.value === 'llama3') {
+    modelInput.value = 'gpt-4o-mini';
+  } else if (provider === 'anthropic' && modelInput.value === 'llama3') {
+    modelInput.value = 'claude-3-5-sonnet-20241022';
+  } else if (provider === 'gemini' && modelInput.value === 'llama3') {
+    modelInput.value = 'gemini-2.0-flash';
+  }
+}
+
+function updateAnalysisPlaceholders() {
+  const provider = document.getElementById('analysisProvider').value;
+  const modelInput = document.getElementById('analysisModel');
+  
+  const modelDefaults = {
+    'none': 'text-only',
+    'ollama': 'llama3',
+    'openai': 'gpt-4o-mini',
+    'anthropic': 'claude-3-5-sonnet-20241022',
+    'gemini': 'gemini-2.0-flash'
+  };
+  
+  if (provider in modelDefaults && modelInput.value === 'gpt-4o-mini' && provider !== 'openai') {
+    modelInput.value = modelDefaults[provider];
+  } else if (provider === 'openai' && modelInput.value !== 'gpt-4o-mini' && modelInput.value !== 'text-only') {
+    modelInput.value = 'gpt-4o-mini';
+  }
+}
+
+async function verifyChatKey() {
+  const provider = document.getElementById('chatProvider').value;
+  const model = document.getElementById('chatModel').value.trim() || 'llama3';
+  const apiKey = document.getElementById('chatApiKey').value.trim();
+  const baseUrl = document.getElementById('chatBaseUrl').value.trim();
+  const statusDiv = document.getElementById('chatKeyStatus');
+  
+  if (provider === 'ollama') {
+    statusDiv.textContent = 'Ollama does not require an API key.';
+    statusDiv.style.color = 'var(--muted)';
+    statusDiv.style.display = 'block';
+    return;
+  }
+  
+  if (!apiKey) {
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'API key is required for ' + provider + '.';
+    statusDiv.style.display = 'block';
+    return;
+  }
+  
+  statusDiv.style.color = 'var(--yellow)';
+  statusDiv.textContent = 'Testing ' + provider + ' API key...';
+  statusDiv.style.display = 'block';
+  
+  const testPrompt = 'Say "OK" and nothing else.';
+  const d = await api('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      provider,
+      model,
+      api_key: apiKey,
+      base_url: baseUrl,
+      prompt: testPrompt,
+    }),
+  });
+  
+  if (d && d.ok) {
+    statusDiv.style.color = 'var(--green)';
+    statusDiv.textContent = 'API key verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK');
+  } else {
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'Key verification failed: ' + (d ? d.error : 'No response') + '. Check your API key and model name.';
+  }
+}
+
+async function verifyAnalysisKey() {
+  const provider = document.getElementById('analysisProvider').value;
+  const model = document.getElementById('analysisModel').value.trim();
+  const apiKey = document.getElementById('analysisApiKey').value.trim();
+  const statusDiv = document.getElementById('analysisKeyStatus');
+  
+  if (provider === 'none' || provider === 'ollama') {
+    statusDiv.textContent = '';
+    statusDiv.style.display = 'none';
+    return;
+  }
+  
+  if (!apiKey) {
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'API key is required for ' + provider + '.';
+    statusDiv.style.display = 'block';
+    return;
+  }
+  
+  statusDiv.style.color = 'var(--yellow)';
+  statusDiv.textContent = 'Testing ' + provider + ' API key for analysis...';
+  statusDiv.style.display = 'block';
+  
+  const testPrompt = 'Say "OK" and nothing else.';
+  const d = await api('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      provider,
+      model: model || 'gpt-4o-mini',
+      api_key: apiKey,
+      prompt: testPrompt,
+    }),
+  });
+  
+  if (d && d.ok) {
+    statusDiv.style.color = 'var(--green)';
+    statusDiv.textContent = 'API key verified for analysis!';
+  } else {
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check your key and model.';
+  }
 }
 
 async function chatAsk() {
@@ -760,6 +976,8 @@ function refresh() { fetchStatus(); fetchLogs(); }
 fetchStatus();
 fetchLogs();
 fetchShots();
+updateBackupUI();
+updateChatPlaceholders();
 
 // Load latest saved report on first open
 api('/api/analysis').then(d => {
@@ -876,7 +1094,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
 
         elif path == "/api/analyze":
-            _start_analysis(bool(body.get("ai", False)))
+            provider = str(body.get("provider", ""))
+            model = str(body.get("model", ""))
+            api_key = str(body.get("api_key", ""))
+            _start_analysis(bool(body.get("ai", False)), provider=provider, model=model, api_key=api_key)
             self._json({"ok": True, "status": "started"})
 
         elif path == "/api/open-screenshots":
