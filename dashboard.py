@@ -658,7 +658,7 @@ tr:hover td{background:rgba(0,217,255,.05)}
 
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
       <div class="ctrl-row" style="margin-top:0">
-        <label style="font-size:11px;color:var(--text-muted);font-weight:700">📅 Backup Date Range:</label>
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700">📅 Download/Backup Logs:</label>
         <select id="backupType" class="btn btn-muted" onchange="updateBackupDateUI()" style="padding:7px 10px">
           <option value="today">Today only</option>
           <option value="all">All logs</option>
@@ -670,17 +670,31 @@ tr:hover td{background:rgba(0,217,255,.05)}
         <input id="backupStartDate" type="date" style="min-width:140px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:11px">
         <label style="font-size:11px;color:var(--text-muted)">To:</label>
         <input id="backupEndDate" type="date" style="min-width:140px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:11px">
-        <button class="btn btn-accent" onclick="backupWithDateRange()">✓ Download/Upload</button>
       </div>
+      <div class="ctrl-row" style="margin-top:10px;gap:8px">
+        <button class="btn btn-accent" onclick="downloadBackup()">💾 Download to Laptop</button>
+        <select id="uploadProvider" class="btn btn-muted" style="padding:7px 10px;min-width:140px" onchange="updateUploadUI()">
+          <option value="none">No cloud upload</option>
+          <option value="gist">GitHub Gist</option>
+          <option value="gdrive">Google Drive</option>
+          <option value="webhook">Webhook URL</option>
+        </select>
+        <input id="uploadTarget" placeholder="GitHub token / Google token / Webhook URL" style="flex:1;min-width:200px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:11px;display:none" value="">
+        <button class="btn btn-accent2" onclick="uploadBackup()" style="display:none" id="uploadBtn">☁ Upload to Cloud</button>
+      </div>
+      <div id="backupMsg" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
     </div>
 
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
       <div class="ctrl-row" style="margin-top:0">
         <label style="font-size:11px;color:var(--text-muted);font-weight:700">📷 Idle Detection (Optional):</label>
-        <button class="btn btn-accent2" onclick="requestCameraPermission()">🎥 Enable Camera</button>
+        <label style="display:inline-flex;align-items:center;cursor:pointer;gap:6px">
+          <input type="checkbox" id="cameraToggle" onchange="toggleCamera()" style="width:16px;height:16px;cursor:pointer">
+          <span style="font-size:11px;color:var(--text)">Enable Camera Monitoring</span>
+        </label>
       </div>
       <div id="cameraMsg" style="margin-top:8px;font-size:11px;display:none"></div>
-      <p style="margin-top:8px;font-size:10px;color:var(--text-muted)">When enabled, Flowtrack will capture your face silently (no flash) every 5 minutes while a window is open. This helps detect if you're actually working or distracted. Completely optional.</p>
+      <p style="margin-top:8px;font-size:10px;color:var(--text-muted)">When enabled, Flowtrack will silently capture your face (no flash) every 5 minutes on idle windows. Helps detect if you're actually working or distracted. Completely optional.</p>
     </div>
   </div>
 
@@ -1172,39 +1186,178 @@ async function chatAsk() {
 }
 
 // ── Camera Capture (new feature) ───────────────────────────────────────────────
-async function requestCameraPermission() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({video: {width: 1280, height: 720}, audio: false});
-    // Permission granted - stop the stream
-    stream.getTracks().forEach(track => track.stop());
-    const msg = document.getElementById('cameraMsg');
-    msg.textContent = '✓ Camera permission granted! Idle window detection enabled.';
-    msg.style.color = 'var(--success)';
-    msg.style.display = 'block';
-    localStorage.setItem('flowtrack_camera_enabled', 'true');
-  } catch (err) {
-    const msg = document.getElementById('cameraMsg');
-    if (err.name === 'NotAllowedError') {
-      msg.textContent = 'Camera permission denied. To enable: 1) reload page, 2) click allow, 3) click Enable Camera.';
-    } else {
-      msg.textContent = 'Camera not available: ' + err.message;
+async function toggleCamera() {
+  const checkbox = document.getElementById('cameraToggle');
+  const msg = document.getElementById('cameraMsg');
+  msg.style.display = 'block';
+  
+  if (checkbox.checked) {
+    // Request permission
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({video: {width: 1280, height: 720}, audio: false});
+      stream.getTracks().forEach(track => track.stop());
+      msg.textContent = '✓ Camera enabled! Idle detection active (silent, no flash).';
+      msg.style.color = 'var(--success)';
+      localStorage.setItem('flowtrack_camera_enabled', 'true');
+    } catch (err) {
+      checkbox.checked = false;
+      if (err.name === 'NotAllowedError') {
+        msg.textContent = '✗ Camera permission denied. Check browser privacy settings.';
+      } else {
+        msg.textContent = '✗ Camera not available: ' + err.message;
+      }
+      msg.style.color = 'var(--danger)';
     }
-    msg.style.color = 'var(--danger)';
-    msg.style.display = 'block';
+  } else {
+    // Disable
+    msg.textContent = '✓ Camera monitoring disabled.';
+    msg.style.color = 'var(--muted)';
+    localStorage.setItem('flowtrack_camera_enabled', 'false');
   }
 }
+
+// Check if camera was previously enabled
+window.addEventListener('DOMContentLoaded', () => {
+  const wasEnabled = localStorage.getItem('flowtrack_camera_enabled') === 'true';
+  document.getElementById('cameraToggle').checked = wasEnabled;
+});
 
 // ── Backup Date Range (new feature) ────────────────────────────────────────────
 function updateBackupDateUI() {
   const backupType = document.getElementById('backupType').value;
   const dateRangeDiv = document.getElementById('dateRangeDiv');
+  dateRangeDiv.style.display = backupType === 'custom' ? 'flex' : 'none';
+}
+
+function updateUploadUI() {
+  const provider = document.getElementById('uploadProvider').value;
+  const targetInput = document.getElementById('uploadTarget');
+  const uploadBtn = document.getElementById('uploadBtn');
   
-  if (backupType === 'all') {
-    dateRangeDiv.style.display = 'none';
-  } else if (backupType === 'today') {
-    dateRangeDiv.style.display = 'none';
+  if (provider === 'none') {
+    targetInput.style.display = 'none';
+    uploadBtn.style.display = 'none';
   } else {
-    dateRangeDiv.style.display = 'flex';
+    targetInput.style.display = 'block';
+    uploadBtn.style.display = 'block';
+    if (provider === 'gist') {
+      targetInput.placeholder = 'GitHub personal access token (required)';
+      targetInput.type = 'password';
+    } else if (provider === 'gdrive') {
+      targetInput.placeholder = 'Google Drive API token or folder ID (required)';
+      targetInput.type = 'text';
+    } else if (provider === 'webhook') {
+      targetInput.placeholder = 'Webhook URL (required)';
+      targetInput.type = 'text';
+    }
+  }
+}
+
+async function downloadBackup() {
+  const backupType = document.getElementById('backupType').value;
+  const msg = document.getElementById('backupMsg');
+  msg.style.color = 'var(--muted)';
+  msg.textContent = '⏳ Preparing download...';
+  
+  try {
+    let startDate = '';
+    let endDate = '';
+    
+    if (backupType === 'custom') {
+      startDate = document.getElementById('backupStartDate').value;
+      endDate = document.getElementById('backupEndDate').value;
+      if (!startDate || !endDate) {
+        msg.textContent = '✗ Please select both start and end dates.';
+        msg.style.color = 'var(--danger)';
+        return;
+      }
+    }
+    
+    const response = await fetch('/api/backup-download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({backup_type: backupType, start_date: startDate, end_date: endDate}),
+    });
+    
+    if (!response.ok) {
+      const err = await response.json();
+      msg.textContent = '✗ Download failed: ' + (err.error || 'Unknown error');
+      msg.style.color = 'var(--danger)';
+      return;
+    }
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `flowtrack-backup-${new Date().toISOString().slice(0,10)}.jsonl`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    
+    msg.textContent = '✓ Backup downloaded successfully!';
+    msg.style.color = 'var(--success)';
+  } catch (err) {
+    msg.textContent = '✗ Download error: ' + err.message;
+    msg.style.color = 'var(--danger)';
+  }
+}
+
+async function uploadBackup() {
+  const backupType = document.getElementById('backupType').value;
+  const provider = document.getElementById('uploadProvider').value;
+  const credential = document.getElementById('uploadTarget').value.trim();
+  const msg = document.getElementById('backupMsg');
+  msg.style.color = 'var(--muted)';
+  msg.textContent = '⏳ Uploading...';
+  
+  if (!credential) {
+    msg.textContent = '✗ Please enter ' + (provider === 'gist' ? 'GitHub token' : provider === 'gdrive' ? 'Google token' : 'webhook URL');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  
+  try {
+    let startDate = '';
+    let endDate = '';
+    
+    if (backupType === 'custom') {
+      startDate = document.getElementById('backupStartDate').value;
+      endDate = document.getElementById('backupEndDate').value;
+      if (!startDate || !endDate) {
+        msg.textContent = '✗ Please select both start and end dates.';
+        msg.style.color = 'var(--danger)';
+        return;
+      }
+    }
+    
+    const payload = {
+      backup_type: backupType,
+      start_date: startDate,
+      end_date: endDate,
+      provider: provider,
+      credential: credential,
+    };
+    
+    const response = await fetch('/api/backup-upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    
+    const data = await response.json();
+    if (data.ok) {
+      msg.textContent = '✓ ' + (data.message || 'Uploaded successfully!');
+      if (data.url) msg.textContent += ' View: ' + data.url;
+      msg.style.color = 'var(--success)';
+    } else {
+      msg.textContent = '✗ Upload failed: ' + (data.error || 'Unknown error');
+      msg.style.color = 'var(--danger)';
+    }
+  } catch (err) {
+    msg.textContent = '✗ Upload error: ' + err.message;
+    msg.style.color = 'var(--danger)';
   }
 }
 
@@ -1455,6 +1608,106 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "reply": reply})
           else:
             self._json({"ok": False, "error": "LLM request failed. Check provider, model, API key, and network."})
+
+        elif path == "/api/backup-download":
+          backup_type = str(body.get("backup_type", "today"))
+          start_date = str(body.get("start_date", ""))
+          end_date = str(body.get("end_date", ""))
+          
+          # Export logs by date
+          if backup_type == "custom":
+            data = export_logs_by_date(start_date, end_date)
+          elif backup_type == "today":
+            data = export_logs_by_date()
+          else:  # all
+            data = {"exported_at": datetime.datetime.now().isoformat(timespec="seconds"), "logs": {f.name: f.read_text(encoding="utf-8") for f in LOG_DIR.glob("*.jsonl")}}
+          
+          if "error" in data:
+            self._json({"ok": False, "error": data.get("error")})
+            return
+          
+          # Convert to JSONL format (one JSON object per line)
+          content = ""
+          for filename, file_content in data.get("logs", {}).items():
+            for line in file_content.strip().split("\n"):
+              if line.strip():
+                content += line + "\n"
+          
+          # Send as downloadable file
+          self.send_response(200)
+          self.send_header("Content-Type", "application/octet-stream")
+          self.send_header("Content-Disposition", f'attachment; filename="flowtrack-backup-{datetime.datetime.now().strftime("%Y-%m-%d")}.jsonl"')
+          self.send_header("Content-Length", len(content.encode()))
+          self.end_headers()
+          self.wfile.write(content.encode())
+
+        elif path == "/api/backup-upload":
+          backup_type = str(body.get("backup_type", "today"))
+          start_date = str(body.get("start_date", ""))
+          end_date = str(body.get("end_date", ""))
+          provider = str(body.get("provider", "gist"))
+          credential = str(body.get("credential", ""))
+          
+          if not credential:
+            self._json({"ok": False, "error": f"Missing credential for {provider}"})
+            return
+          
+          # Export logs by date
+          if backup_type == "custom":
+            data = export_logs_by_date(start_date, end_date)
+          elif backup_type == "today":
+            data = export_logs_by_date()
+          else:  # all
+            data = {"exported_at": datetime.datetime.now().isoformat(timespec="seconds"), "logs": {f.name: f.read_text(encoding="utf-8") for f in LOG_DIR.glob("*.jsonl")}}
+          
+          if "error" in data:
+            self._json({"ok": False, "error": data.get("error")})
+            return
+          
+          # Convert to JSONL
+          content = ""
+          for filename, file_content in data.get("logs", {}).items():
+            for line in file_content.strip().split("\n"):
+              if line.strip():
+                content += line + "\n"
+          
+          # Upload based on provider
+          if provider == "gist":
+            try:
+              import requests
+              url = "https://api.github.com/gists"
+              payload = {
+                "description": f"Flowtrack logs backup {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                "public": False,
+                "files": {"flowtrack-backup.jsonl": {"content": content}},
+              }
+              headers = {"Authorization": f"token {credential}", "Accept": "application/vnd.github.v3+json"}
+              resp = requests.post(url, json=payload, headers=headers, timeout=10)
+              if resp.status_code == 201:
+                gist_url = resp.json().get("html_url", "")
+                self._json({"ok": True, "message": "Uploaded to GitHub Gist", "url": gist_url})
+              else:
+                self._json({"ok": False, "error": f"GitHub error: {resp.text}"})
+            except Exception as e:
+              self._json({"ok": False, "error": f"GitHub upload failed: {str(e)}"})
+          
+          elif provider == "gdrive":
+            self._json({"ok": False, "error": "Google Drive upload coming soon. For now, use GitHub Gist or webhook."})
+          
+          elif provider == "webhook":
+            try:
+              import requests
+              payload = {"backup_data": content, "timestamp": datetime.datetime.now().isoformat(timespec="seconds"), "backup_type": backup_type}
+              resp = requests.post(credential, json=payload, timeout=10)
+              if resp.status_code in [200, 201]:
+                self._json({"ok": True, "message": "Webhook upload successful"})
+              else:
+                self._json({"ok": False, "error": f"Webhook returned {resp.status_code}"})
+            except Exception as e:
+              self._json({"ok": False, "error": f"Webhook upload failed: {str(e)}"})
+          
+          else:
+            self._json({"ok": False, "error": f"Unknown provider: {provider}"})
 
         elif path == "/api/backup-date-range":
           backup_type = str(body.get("backup_type", "today"))
