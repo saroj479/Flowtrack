@@ -45,6 +45,7 @@ RABBIT_HOLE_THRESHOLD  = 20   # unique browser-tab titles in a rolling window
 RABBIT_HOLE_WINDOW_MIN = 30   # rolling window size in minutes
 
 DEEP_WORK_SECONDS      = 25 * 60   # 25 minutes
+LOG_INTERVAL           = 30        # default duration fallback (seconds)
 
 BROWSER_APPS = {
     "chrome", "chromium", "chromium-browser", "google-chrome",
