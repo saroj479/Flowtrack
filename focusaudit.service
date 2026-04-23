@@ -1,5 +1,5 @@
 [Unit]
-Description=FocusAudit — Window Activity Tracker
+Description=Flowtrack — Window Activity Tracker
 Documentation=file://%h/.focusaudit/tracker.log
 
 # Wait until the graphical session (X11 or Wayland) is fully established

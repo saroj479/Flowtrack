@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FocusAudit - AI Pattern Analyzer  (Modules 3 & 4)
+Flowtrack - AI Pattern Analyzer  (Modules 3 & 4)
 
 Usage:
     python3 analyze.py              # full analysis + Ollama (if running)
@@ -323,7 +323,7 @@ def generate_text_report(
     today = datetime.date.today().isoformat()
     lines = [
         "══════════════════════════════════════════════════════════════",
-        f"  FocusAudit Analysis  —  generated {today}",
+        f"  Flowtrack Analysis  —  generated {today}",
         "══════════════════════════════════════════════════════════════",
         "",
         f"TOTAL EVENTS (last 7 days): {len(entries)}",
@@ -462,7 +462,7 @@ def main() -> None:
     parser.add_argument("--model",  default=OLLAMA_MODEL, help=f"Ollama model (default: {OLLAMA_MODEL})")
     args = parser.parse_args()
 
-    print("FocusAudit — AI Pattern Analyzer")
+    print("Flowtrack — AI Pattern Analyzer")
     print("=" * 60)
 
     entries = load_entries(args.days)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  FocusAudit — one-shot installer
+#  Flowtrack — one-shot installer
 #
 #  What it does:
 #    1. Installs system packages (xdotool, scrot) if missing
@@ -28,7 +28,7 @@ error() { echo -e "${RED}[✘]${NC} $*"; exit 1; }
 
 echo ""
 echo "══════════════════════════════════════════════════════"
-echo "  FocusAudit Installer"
+echo "  Flowtrack Installer"
 echo "══════════════════════════════════════════════════════"
 echo ""
 
@@ -72,7 +72,7 @@ for script in tracker.py analyze.py; do
 done
 
 # Convenience wrapper so you can run  focusaudit-analyze  from anywhere
-WRAPPER="$HOME/.local/bin/focusaudit-analyze"
+WRAPPER="$HOME/.local/bin/flowtrack-analyze"
 mkdir -p "$HOME/.local/bin"
 cat > "$WRAPPER" << WRAPPER_EOF
 #!/usr/bin/env bash
@@ -88,7 +88,7 @@ mkdir -p "$SERVICE_DIR"
 # Generate the service file (inline so install.sh is self-contained)
 cat > "$SERVICE_DIR/$SERVICE_NAME" << SERVICE_EOF
 [Unit]
-Description=FocusAudit — Window Activity Tracker
+Description=Flowtrack — Window Activity Tracker
 Documentation=file://%h/.focusaudit/tracker.log
 After=graphical-session.target
 PartOf=graphical-session.target
@@ -136,7 +136,7 @@ echo ""
 echo "  Useful commands"
 echo "  ───────────────────────────────────────────────────"
 echo "  Live log   :  tail -f $FOCUSAUDIT_HOME/logs/\$(date +%Y-%m-%d).jsonl"
-echo "  AI report  :  focusaudit-analyze"
+  echo "  AI report  :  flowtrack-analyze"
 echo "  AI report  :  $VENV_DIR/bin/python3 $FOCUSAUDIT_HOME/analyze.py"
 echo "  Stop       :  systemctl --user stop $SERVICE_NAME"
 echo "  Restart    :  systemctl --user restart $SERVICE_NAME"

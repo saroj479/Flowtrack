@@ -1,9 +1,9 @@
-# FocusFlow
+# Flowtrack
 
 > **Private, local productivity tracker for Linux desktops.**  
 > No cloud. No API keys. No subscription. Your data stays on your machine.
 
-FocusFlow watches which window you are working in and builds an honest picture of your real focus patterns — not just "I used Chrome for 3 hours" but *how many times you switched away from it in that time*.
+Flowtrack watches which window you are working in and builds an honest picture of your real focus patterns — not just "I used Chrome for 3 hours" but *how many times you switched away from it in that time*.
 
 ---
 
@@ -31,7 +31,7 @@ FocusFlow watches which window you are working in and builds an honest picture o
 ## Project structure
 
 ```
-focusflow/
+flowtrack/
 ├── tracker.py          # Daemon — logs every window change + screenshots
 ├── analyze.py          # AI analyzer — reads logs, scores focus, queries Ollama
 ├── install.sh          # One-shot installer (venv + systemd user service)
@@ -80,8 +80,8 @@ If Ollama is not installed, `analyze.py` prints a ready-to-paste prompt for any 
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/focusflow.git
-cd focusflow
+git clone https://github.com/saroj479/Flowtrack.git
+cd Flowtrack
 bash install.sh
 ```
 
@@ -114,16 +114,16 @@ for line in sys.stdin:
 ### Run the AI analyzer
 ```bash
 # Requires Ollama running locally
-focusaudit-analyze
+flowtrack-analyze
 
 # Analyse the last 3 days only
-focusaudit-analyze --days 3
+flowtrack-analyze --days 3
 
 # Skip Ollama — print stats and a copy-paste prompt
-focusaudit-analyze --no-ai
+flowtrack-analyze --no-ai
 
 # Use a different Ollama model
-focusaudit-analyze --model mistral
+flowtrack-analyze --model mistral
 ```
 
 ### View screenshots
@@ -206,4 +206,4 @@ Open an issue before starting large features.
 
 ## License
 
-MIT — free to use, modify, and distribute.
+MIT — free to use, modify, and distribute. See [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FocusAudit - High-Frequency Window Activity Tracker (Modules 1 & 2)
+Flowtrack - High-Frequency Window Activity Tracker (Modules 1 & 2)
 
 Polls the active window title every second. Logs an entry on every title
 change OR every 30 seconds if the title is unchanged. Captures a
@@ -147,7 +147,7 @@ def take_screenshot() -> Optional[str]:
     if HAS_MSS and HAS_PIL:
         try:
             import mss as _mss
-            with _mss.mss() as sct:
+            with _mss.MSS() as sct:
                 monitor = sct.monitors[1]      # primary monitor
                 raw     = sct.grab(monitor)
                 img     = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
@@ -258,7 +258,7 @@ signal.signal(signal.SIGINT,  _handle_signal)
 
 
 def main() -> None:
-    log.info("FocusAudit tracker starting. DISPLAY=%s", os.environ.get("DISPLAY", "unset"))
+    log.info("Flowtrack tracker starting. DISPLAY=%s", os.environ.get("DISPLAY", "unset"))
 
     # Module 2: purge old screenshots on every startup
     purge_old_screenshots()
@@ -292,7 +292,7 @@ def main() -> None:
 
         time.sleep(POLL_INTERVAL)
 
-    log.info("FocusAudit tracker stopped.")
+    log.info("Flowtrack tracker stopped.")
 
 
 if __name__ == "__main__":
