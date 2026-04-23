@@ -123,23 +123,76 @@ else
     warn "It will start automatically on your next login."
 fi
 
+# ── 6. Dashboard ─────────────────────────────────────────────────────────────
+info "Installing Flowtrack Dashboard …"
+
+cp "$SCRIPT_DIR/dashboard.py" "$FOCUSAUDIT_HOME/dashboard.py"
+chmod +x "$FOCUSAUDIT_HOME/dashboard.py"
+
+DASH_SVC="flowtrack-dashboard.service"
+cat > "$SERVICE_DIR/$DASH_SVC" << DASH_EOF
+[Unit]
+Description=Flowtrack Dashboard Web UI (http://127.0.0.1:7070)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$VENV_DIR/bin/python3 $FOCUSAUDIT_HOME/dashboard.py
+Restart=on-failure
+RestartSec=5
+Environment="PYTHONUNBUFFERED=1"
+StandardOutput=append:$FOCUSAUDIT_HOME/dashboard.log
+StandardError=append:$FOCUSAUDIT_HOME/dashboard.log
+NoNewPrivileges=true
+MemoryMax=80M
+
+[Install]
+WantedBy=default.target
+DASH_EOF
+
+# Convenience command: 'flowtrack' opens the dashboard in the browser
+BROWSER_WRAPPER="$HOME/.local/bin/flowtrack"
+cat > "$BROWSER_WRAPPER" << BWRAP_EOF
+#!/usr/bin/env bash
+systemctl --user is-active flowtrack-dashboard >/dev/null 2>&1 || \
+    systemctl --user start flowtrack-dashboard 2>/dev/null
+sleep 0.5
+xdg-open http://127.0.0.1:7070
+BWRAP_EOF
+chmod +x "$BROWSER_WRAPPER"
+
+systemctl --user daemon-reload
+systemctl --user enable "$DASH_SVC"
+if systemctl --user start "$DASH_SVC" 2>/dev/null; then
+    info "Dashboard started."
+    sleep 1
+    xdg-open http://127.0.0.1:7070 &>/dev/null || true
+else
+    warn "Dashboard will start on next login."
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Installation complete!"
 echo "══════════════════════════════════════════════════════"
 echo ""
-
 systemctl --user status "$SERVICE_NAME" --no-pager 2>/dev/null || true
-
 echo ""
-echo "  Useful commands"
-echo "  ───────────────────────────────────────────────────"
-echo "  Live log   :  tail -f $FOCUSAUDIT_HOME/logs/\$(date +%Y-%m-%d).jsonl"
-  echo "  AI report  :  flowtrack-analyze"
-echo "  AI report  :  $VENV_DIR/bin/python3 $FOCUSAUDIT_HOME/analyze.py"
-echo "  Stop       :  systemctl --user stop $SERVICE_NAME"
-echo "  Restart    :  systemctl --user restart $SERVICE_NAME"
-echo "  Service log:  journalctl --user -u $SERVICE_NAME -f"
-echo "  Screenshots:  ls $FOCUSAUDIT_HOME/screenshots/"
+echo "  ┌─ HOW TO USE ─────────────────────────────────────"
+echo "  │"
+echo "  │  Open dashboard   :  flowtrack"
+echo "  │                      http://127.0.0.1:7070"
+echo "  │"
+echo "  │  From the dashboard:"
+echo "  │    • Start / Stop / Restart the tracker"
+echo "  │    • Watch the live activity log"
+echo "  │    • View screenshots (click to zoom)"
+echo "  │    • Run AI focus analysis"
+echo "  │    • Monitor RAM & storage"
+echo "  │"
+echo "  │  CLI"
+echo "  │    Live log  :  tail -f $FOCUSAUDIT_HOME/logs/\$(date +%Y-%m-%d).jsonl"
+echo "  │    Analysis  :  flowtrack-analyze --no-ai"
+echo "  └───────────────────────────────────────────────────"
 echo ""

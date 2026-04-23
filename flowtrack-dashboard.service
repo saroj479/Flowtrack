@@ -1,0 +1,18 @@
+[Unit]
+Description=Flowtrack Dashboard Web UI (http://127.0.0.1:7070)
+Documentation=https://github.com/saroj479/Flowtrack
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.focusaudit/venv/bin/python3 %h/.focusaudit/dashboard.py
+Restart=on-failure
+RestartSec=5
+Environment="PYTHONUNBUFFERED=1"
+StandardOutput=append:%h/.focusaudit/dashboard.log
+StandardError=append:%h/.focusaudit/dashboard.log
+NoNewPrivileges=true
+MemoryMax=80M
+
+[Install]
+WantedBy=default.target
