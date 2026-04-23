@@ -1,0 +1,41 @@
+[Unit]
+Description=FocusAudit — Window Activity Tracker
+Documentation=file://%h/.focusaudit/tracker.log
+
+# Wait until the graphical session (X11 or Wayland) is fully established
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+
+# Python venv created by install.sh
+ExecStart=%h/.focusaudit/venv/bin/python3 %h/.focusaudit/tracker.py
+
+# Restart automatically if the process crashes
+Restart=on-failure
+RestartSec=15
+
+# Pass the graphical-session environment so xdotool/mss can reach the display
+PassEnvironment=DISPLAY XAUTHORITY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS
+
+# Fallbacks if those variables are not set (common for plain X11 sessions)
+Environment="DISPLAY=:1"
+
+# Unbuffered output makes the log easier to tail in real time
+Environment="PYTHONUNBUFFERED=1"
+
+# Redirect stdout/stderr to a persistent log file (survives journald restarts)
+StandardOutput=append:%h/.focusaudit/service.log
+StandardError=append:%h/.focusaudit/service.log
+
+# Keep RAM usage low: limit to 150 MB virtual, 80 MB physical
+MemoryMax=150M
+MemoryHigh=80M
+
+# No new privileges — pure user-space tracker
+NoNewPrivileges=true
+
+[Install]
+# Start automatically whenever a graphical user session begins
+WantedBy=graphical-session.target

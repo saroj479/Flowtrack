@@ -1,0 +1,11 @@
+# FocusFlow - Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# Fast screenshot capture (X11 & Wayland)
+mss>=9.0.1
+
+# Image processing (resize, grayscale, JPEG compression)
+Pillow>=10.0.0
+
+# All other code uses Python 3.9+ stdlib only:
+#   json, pathlib, subprocess, collections, datetime, signal, re, urllib
