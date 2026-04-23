@@ -112,27 +112,103 @@ Supported in analysis and chat:
 - Anthropic
 - Gemini
 
-You can set provider, model, API key, and optional custom base URL.
+Defaults:
 
-## Windows and macOS guidance
+- Chat provider defaults to Ollama
+- Analysis provider defaults to Ollama
+- Default Ollama model is llama3
+- API key is not required for Ollama
 
-Current status:
+You can still change provider, model, API key, and optional custom base URL at any time.
 
-- Full active window tracking is Linux first
-- Dashboard and analysis logic are portable Python code
-- Native tracker integration for Windows and macOS is planned
+## Native Windows and macOS usage
 
-How Windows users can test now:
+Flowtrack dashboard and analysis run natively on Windows and macOS.
 
-1. Use Ubuntu desktop or Ubuntu VM for full tracker behavior
-2. Or run analysis and dashboard against exported JSON logs
+Tracker integration notes:
 
-How macOS users can test now:
+- Linux: full service mode via systemd
+- Windows/macOS: run tracker manually from terminal
 
-1. Use Ubuntu desktop or Ubuntu VM for full tracker behavior
-2. Or run analysis and dashboard against exported JSON logs
+### Windows setup (native)
 
-If you want native Windows and macOS active window tracking, contributions are welcome for platform adapters.
+1. Install Python 3.10+ from python.org
+2. Install Ollama from ollama.com/download/windows
+3. In PowerShell:
+
+```powershell
+git clone https://github.com/saroj479/Flowtrack.git
+cd Flowtrack
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install --upgrade pip mss Pillow
+```
+
+4. Start Ollama and pull model:
+
+```powershell
+ollama pull llama3
+ollama run llama3
+```
+
+5. Start tracker and dashboard (manual mode):
+
+```powershell
+python tracker.py
+```
+
+Open a second terminal:
+
+```powershell
+cd Flowtrack
+.venv\Scripts\Activate.ps1
+python dashboard.py
+```
+
+Open http://127.0.0.1:7070 in browser.
+
+### macOS setup (native)
+
+1. Install Python 3.10+
+2. Install Ollama from ollama.com/download/mac
+3. In Terminal:
+
+```bash
+git clone https://github.com/saroj479/Flowtrack.git
+cd Flowtrack
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip mss Pillow
+```
+
+4. Start Ollama and pull model:
+
+```bash
+ollama pull llama3
+ollama run llama3
+```
+
+5. Start tracker and dashboard (manual mode):
+
+```bash
+python3 tracker.py
+```
+
+Open a second terminal:
+
+```bash
+cd Flowtrack
+source .venv/bin/activate
+python3 dashboard.py
+```
+
+Open http://127.0.0.1:7070 in browser.
+
+Important for Windows/macOS:
+
+- Service buttons in dashboard use systemd and are Linux-only
+- Start/stop tracker manually from terminal on Windows/macOS
+- All AI chat, AI analysis, backup download, and cloud backup features work in dashboard
 
 ## Troubleshooting
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import platform
 import re
 import subprocess
 import threading
@@ -54,27 +55,31 @@ def _sh(cmd: list[str], timeout: int = 5) -> str:
 
 
 def service_status() -> dict:
-    active = _sh(["systemctl", "--user", "is-active", SERVICE_NAME])
-    prop   = _sh(["systemctl", "--user", "show", SERVICE_NAME,
-                  "--property=MainPID,MemoryCurrent"])
-    pid, mem = 0, 0
-    for line in prop.splitlines():
-        k, _, v = line.partition("=")
-        if k == "MainPID" and v.isdigit():
-            pid = int(v)
-        elif k == "MemoryCurrent" and v.isdigit():
-            mem = int(v)
-    ram_mb = round(mem / (1024 * 1024), 1)
-    if ram_mb == 0 and pid > 0:
-        try:
-            for ln in Path(f"/proc/{pid}/status").read_text().splitlines():
-                if ln.startswith("VmRSS:"):
-                    ram_mb = round(int(ln.split()[1]) / 1024, 1)
-                    break
-        except OSError:
-            pass
-    return {"active": active == "active", "status": active,
-            "pid": pid, "ram_mb": ram_mb}
+  if platform.system() != "Linux":
+    # On macOS/Windows, systemd is unavailable. Keep dashboard usable.
+    return {"active": False, "status": "unsupported", "pid": 0, "ram_mb": 0.0}
+
+  active = _sh(["systemctl", "--user", "is-active", SERVICE_NAME])
+  prop   = _sh(["systemctl", "--user", "show", SERVICE_NAME,
+          "--property=MainPID,MemoryCurrent"])
+  pid, mem = 0, 0
+  for line in prop.splitlines():
+    k, _, v = line.partition("=")
+    if k == "MainPID" and v.isdigit():
+      pid = int(v)
+    elif k == "MemoryCurrent" and v.isdigit():
+      mem = int(v)
+  ram_mb = round(mem / (1024 * 1024), 1)
+  if ram_mb == 0 and pid > 0:
+    try:
+      for ln in Path(f"/proc/{pid}/status").read_text().splitlines():
+        if ln.startswith("VmRSS:"):
+          ram_mb = round(int(ln.split()[1]) / 1024, 1)
+          break
+    except OSError:
+      pass
+  return {"active": active == "active", "status": active,
+      "pid": pid, "ram_mb": ram_mb}
 
 
 def storage_stats() -> dict:
@@ -155,73 +160,118 @@ def sync_json_to_cloud(provider: str, target: str, api_key: str) -> dict:
     return {"ok": False, "error": "Unsupported provider. Use gist or webhook."}
 
 
-def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: str = "") -> str | None:
-    provider = provider.lower().strip()
+def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: str = "") -> tuple[str | None, str | None]:
+  provider = provider.lower().strip()
+  try:
+    if provider == "ollama":
+      model = (model or "llama3").strip()
+      ollama_url = (base_url or OLLAMA_URL).strip()
+      if ollama_url.endswith("/"):
+        ollama_url = ollama_url[:-1]
+      if ollama_url.endswith(":11434"):
+        ollama_url = ollama_url + "/api/generate"
+      elif "/api/" not in ollama_url:
+        ollama_url = ollama_url + "/api/generate"
+
+      # If requested model is missing, fall back to an installed Ollama model.
+      try:
+        tags_url = ollama_url.replace("/api/generate", "/api/tags")
+        with urllib.request.urlopen(tags_url, timeout=10) as resp:
+          tags = json.loads(resp.read())
+        installed = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+        if not installed:
+          return None, "Ollama is running but no models are installed. Run: ollama pull llama3"
+        if model in installed:
+          pass
+        elif ":" not in model:
+          pref = next((m for m in installed if m.startswith(model + ":")), "")
+          model = pref or installed[0]
+        else:
+          model = installed[0]
+      except Exception:
+        pass
+
+      payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+      req = urllib.request.Request(
+        ollama_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+      )
+      with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+        text = data.get("response", "").strip()
+        return (text if text else None, None if text else "Ollama returned an empty response.")
+
+    if provider == "openai":
+      if not api_key:
+        return None, "OpenAI API key is required."
+      payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+      }).encode("utf-8")
+      req = urllib.request.Request(
+        base_url or OPENAI_URL,
+        data=payload,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+      )
+      with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+        text = data["choices"][0]["message"]["content"].strip()
+        return (text if text else None, None if text else "OpenAI returned an empty response.")
+
+    if provider == "anthropic":
+      if not api_key:
+        return None, "Anthropic API key is required."
+      payload = json.dumps({
+        "model": model,
+        "max_tokens": 800,
+        "messages": [{"role": "user", "content": prompt}],
+      }).encode("utf-8")
+      req = urllib.request.Request(
+        base_url or ANTHROPIC_URL,
+        data=payload,
+        headers={
+          "Content-Type": "application/json",
+          "x-api-key": api_key,
+          "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+      )
+      with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+        parts = data.get("content", [])
+        text = parts[0].get("text", "").strip() if parts else ""
+        return (text if text else None, None if text else "Anthropic returned an empty response.")
+
+    if provider == "gemini":
+      if not api_key:
+        return None, "Gemini API key is required."
+      url = (base_url or GEMINI_URL_TMPL).format(model=model, key=api_key)
+      payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
+      req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+      with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return (text if text else None, None if text else "Gemini returned an empty response.")
+
+    return None, f"Unsupported provider: {provider}"
+
+  except urllib.error.HTTPError as exc:
+    detail = ""
     try:
-        if provider == "ollama":
-            payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
-            req = urllib.request.Request(
-                base_url or OLLAMA_URL,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                return json.loads(resp.read()).get("response", "").strip()
-
-        if provider == "openai":
-            if not api_key:
-                return None
-            payload = json.dumps({
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2,
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                base_url or OPENAI_URL,
-                data=payload,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-                return data["choices"][0]["message"]["content"].strip()
-
-        if provider == "anthropic":
-            if not api_key:
-                return None
-            payload = json.dumps({
-                "model": model,
-                "max_tokens": 800,
-                "messages": [{"role": "user", "content": prompt}],
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                base_url or ANTHROPIC_URL,
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-                parts = data.get("content", [])
-                return parts[0].get("text", "").strip() if parts else None
-
-        if provider == "gemini":
-            if not api_key:
-                return None
-            url = (base_url or GEMINI_URL_TMPL).format(model=model, key=api_key)
-            payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (urllib.error.URLError, json.JSONDecodeError, OSError, KeyError, IndexError, TypeError):
-        return None
-    return None
+      detail = exc.read().decode("utf-8", errors="replace")[:400]
+    except Exception:
+      detail = str(exc)
+    return None, f"HTTP {exc.code} from {provider}: {detail}"
+  except urllib.error.URLError as exc:
+    if provider == "ollama":
+      return None, "Cannot reach Ollama at http://localhost:11434. Start Ollama and run: ollama run llama3"
+    return None, f"Network error for {provider}: {exc.reason}"
+  except (json.JSONDecodeError, OSError, KeyError, IndexError, TypeError) as exc:
+    return None, f"{provider} request failed: {exc}"
 
 
 def today_events() -> list[dict]:
@@ -738,14 +788,14 @@ tr:hover td{background:rgba(0,217,255,.05)}
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <label style="font-size:11px;color:var(--muted);font-weight:700">Provider for analysis:</label>
       <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders()" style="padding:7px 10px">
+        <option value="ollama" selected>Ollama (default)</option>
         <option value="none">No AI (text only)</option>
-        <option value="ollama">Ollama</option>
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
         <option value="gemini">Gemini</option>
       </select>
-      <input id="analysisModel" placeholder="Model name (e.g., gpt-4o-mini, claude-3-5-sonnet)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="gpt-4o-mini">
-      <input id="analysisApiKey" type="password" placeholder="API key for selected provider (leave empty to use environment variable)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="analysisModel" placeholder="Model name (e.g., llama3, gpt-4o-mini, claude-3-5-sonnet)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="llama3">
+      <input id="analysisApiKey" type="password" placeholder="Not needed for Ollama (required for cloud providers)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <button class="btn btn-yellow" onclick="verifyAnalysisKey()">✓ Verify Key</button>
     </div>
     <div id="analysisKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
@@ -1046,6 +1096,7 @@ function updateChatPlaceholders() {
 function updateAnalysisPlaceholders() {
   const provider = document.getElementById('analysisProvider').value;
   const modelInput = document.getElementById('analysisModel');
+  const keyInput = document.getElementById('analysisApiKey');
   
   const modelDefaults = {
     'none': 'text-only',
@@ -1055,11 +1106,15 @@ function updateAnalysisPlaceholders() {
     'gemini': 'gemini-2.0-flash'
   };
   
-  if (provider in modelDefaults && modelInput.value === 'gpt-4o-mini' && provider !== 'openai') {
+  if (provider in modelDefaults && (modelInput.value === '' || modelInput.value === 'gpt-4o-mini') && provider !== 'openai') {
     modelInput.value = modelDefaults[provider];
   } else if (provider === 'openai' && modelInput.value !== 'gpt-4o-mini' && modelInput.value !== 'text-only') {
     modelInput.value = 'gpt-4o-mini';
   }
+
+  keyInput.placeholder = provider === 'ollama'
+    ? 'Not needed for Ollama - leave empty'
+    : ('API key required for ' + provider);
 }
 
 async function verifyChatKey() {
@@ -1069,14 +1124,7 @@ async function verifyChatKey() {
   const baseUrl = document.getElementById('chatBaseUrl').value.trim();
   const statusDiv = document.getElementById('chatKeyStatus');
   
-  if (provider === 'ollama') {
-    statusDiv.textContent = 'Ollama does not require an API key.';
-    statusDiv.style.color = 'var(--muted)';
-    statusDiv.style.display = 'block';
-    return;
-  }
-  
-  if (!apiKey) {
+  if (provider !== 'ollama' && !apiKey) {
     statusDiv.style.color = 'var(--red)';
     statusDiv.textContent = 'API key is required for ' + provider + '.';
     statusDiv.style.display = 'block';
@@ -1084,7 +1132,9 @@ async function verifyChatKey() {
   }
   
   statusDiv.style.color = 'var(--yellow)';
-  statusDiv.textContent = 'Testing ' + provider + ' API key...';
+  statusDiv.textContent = provider === 'ollama'
+    ? 'Testing Ollama connection...'
+    : ('Testing ' + provider + ' API key...');
   statusDiv.style.display = 'block';
   
   const testPrompt = 'Say "OK" and nothing else.';
@@ -1102,26 +1152,28 @@ async function verifyChatKey() {
   
   if (d && d.ok) {
     statusDiv.style.color = 'var(--green)';
-    statusDiv.textContent = 'API key verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK');
+    statusDiv.textContent = provider === 'ollama'
+      ? 'Ollama connection verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK')
+      : ('API key verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK'));
   } else {
     statusDiv.style.color = 'var(--red)';
-    statusDiv.textContent = 'Key verification failed: ' + (d ? d.error : 'No response') + '. Check your API key and model name.';
+    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
   }
 }
 
 async function verifyAnalysisKey() {
   const provider = document.getElementById('analysisProvider').value;
-  const model = document.getElementById('analysisModel').value.trim();
+  const model = document.getElementById('analysisModel').value.trim() || 'llama3';
   const apiKey = document.getElementById('analysisApiKey').value.trim();
   const statusDiv = document.getElementById('analysisKeyStatus');
   
-  if (provider === 'none' || provider === 'ollama') {
+  if (provider === 'none') {
     statusDiv.textContent = '';
     statusDiv.style.display = 'none';
     return;
   }
   
-  if (!apiKey) {
+  if (provider !== 'ollama' && !apiKey) {
     statusDiv.style.color = 'var(--red)';
     statusDiv.textContent = 'API key is required for ' + provider + '.';
     statusDiv.style.display = 'block';
@@ -1129,7 +1181,9 @@ async function verifyAnalysisKey() {
   }
   
   statusDiv.style.color = 'var(--yellow)';
-  statusDiv.textContent = 'Testing ' + provider + ' API key for analysis...';
+  statusDiv.textContent = provider === 'ollama'
+    ? 'Testing Ollama connection for analysis...'
+    : ('Testing ' + provider + ' API key for analysis...');
   statusDiv.style.display = 'block';
   
   const testPrompt = 'Say "OK" and nothing else.';
@@ -1146,10 +1200,12 @@ async function verifyAnalysisKey() {
   
   if (d && d.ok) {
     statusDiv.style.color = 'var(--green)';
-    statusDiv.textContent = 'API key verified for analysis!';
+    statusDiv.textContent = provider === 'ollama'
+      ? 'Ollama connection verified for analysis!'
+      : 'API key verified for analysis!';
   } else {
     statusDiv.style.color = 'var(--red)';
-    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check your key and model.';
+    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
   }
 }
 
@@ -1444,7 +1500,10 @@ fetchStatus();
 fetchLogs();
 fetchShots();
 updateBackupUI();
+updateBackupDateUI();
+updateUploadUI();
 updateChatPlaceholders();
+updateAnalysisPlaceholders();
 
 // Load latest saved report on first open
 api('/api/analysis').then(d => {
@@ -1553,11 +1612,18 @@ class Handler(BaseHTTPRequestHandler):
             action = body.get("action", "")
             # Whitelist only safe systemctl actions
             if action in ("start", "stop", "restart"):
-                subprocess.Popen(
-                    ["systemctl", "--user", action, SERVICE_NAME],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                if platform.system() != "Linux":
+                    self._json({"ok": False, "error": "Service controls use systemd and are Linux-only. Run tracker manually on this OS."}, code=400)
+                    return
+                try:
+                    subprocess.Popen(
+                        ["systemctl", "--user", action, SERVICE_NAME],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except OSError as exc:
+                    self._json({"ok": False, "error": f"Service action failed: {exc}"}, code=500)
+                    return
             self._json({"ok": True})
 
         elif path == "/api/analyze":
@@ -1568,11 +1634,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "status": "started"})
 
         elif path == "/api/open-screenshots":
+          opener = "xdg-open"
+          if platform.system() == "Darwin":
+            opener = "open"
+          elif platform.system() == "Windows":
+            opener = "explorer"
+          try:
             subprocess.Popen(
-                ["xdg-open", str(SCREENSHOTS_DIR)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+              [opener, str(SCREENSHOTS_DIR)],
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
             )
+          except OSError as exc:
+            self._json({"ok": False, "error": f"Open folder failed: {exc}"}, code=500)
+            return
             self._json({"ok": True})
 
         elif path == "/api/sync-json":
@@ -1584,9 +1659,18 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/chat":
           provider = str(body.get("provider", "ollama"))
-          model = str(body.get("model", "llama3"))
+          model = str(body.get("model", "")).strip()
           api_key = str(body.get("api_key", ""))
           base_url = str(body.get("base_url", ""))
+          if not model:
+            if provider == "openai":
+              model = "gpt-4o-mini"
+            elif provider == "anthropic":
+              model = "claude-3-5-sonnet-20241022"
+            elif provider == "gemini":
+              model = "gemini-2.0-flash"
+            else:
+              model = "llama3"
           prompt = str(body.get("prompt", "")).strip()
           if not prompt:
             self._json({"ok": False, "error": "Prompt is empty."}, code=400)
@@ -1603,11 +1687,11 @@ class Handler(BaseHTTPRequestHandler):
             f"Context JSON:\n{json.dumps(context, ensure_ascii=False)}\n\n"
             f"User question:\n{prompt}\n"
           )
-          reply = query_llm(final_prompt, provider=provider, model=model, api_key=api_key, base_url=base_url)
+          reply, err = query_llm(final_prompt, provider=provider, model=model, api_key=api_key, base_url=base_url)
           if reply:
             self._json({"ok": True, "reply": reply})
           else:
-            self._json({"ok": False, "error": "LLM request failed. Check provider, model, API key, and network."})
+            self._json({"ok": False, "error": err or "LLM request failed. Check provider, model, API key, and network."})
 
         elif path == "/api/backup-download":
           backup_type = str(body.get("backup_type", "today"))
@@ -1674,20 +1758,32 @@ class Handler(BaseHTTPRequestHandler):
           # Upload based on provider
           if provider == "gist":
             try:
-              import requests
               url = "https://api.github.com/gists"
               payload = {
                 "description": f"Flowtrack logs backup {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
                 "public": False,
                 "files": {"flowtrack-backup.jsonl": {"content": content}},
               }
-              headers = {"Authorization": f"token {credential}", "Accept": "application/vnd.github.v3+json"}
-              resp = requests.post(url, json=payload, headers=headers, timeout=10)
-              if resp.status_code == 201:
-                gist_url = resp.json().get("html_url", "")
+              req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                  "Content-Type": "application/json",
+                  "Authorization": f"Bearer {credential}",
+                  "Accept": "application/vnd.github+json",
+                },
+                method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                gist = json.loads(resp.read())
+              if gist.get("html_url"):
+                gist_url = gist.get("html_url", "")
                 self._json({"ok": True, "message": "Uploaded to GitHub Gist", "url": gist_url})
               else:
-                self._json({"ok": False, "error": f"GitHub error: {resp.text}"})
+                self._json({"ok": False, "error": "GitHub did not return a gist URL."})
+            except urllib.error.HTTPError as e:
+              detail = e.read().decode("utf-8", errors="replace")
+              self._json({"ok": False, "error": f"GitHub upload failed (HTTP {e.code}): {detail[:300]}"})
             except Exception as e:
               self._json({"ok": False, "error": f"GitHub upload failed: {str(e)}"})
           
@@ -1696,13 +1792,22 @@ class Handler(BaseHTTPRequestHandler):
           
           elif provider == "webhook":
             try:
-              import requests
               payload = {"backup_data": content, "timestamp": datetime.datetime.now().isoformat(timespec="seconds"), "backup_type": backup_type}
-              resp = requests.post(credential, json=payload, timeout=10)
-              if resp.status_code in [200, 201]:
+              req = urllib.request.Request(
+                credential,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                status = resp.status
+              if status in [200, 201]:
                 self._json({"ok": True, "message": "Webhook upload successful"})
               else:
-                self._json({"ok": False, "error": f"Webhook returned {resp.status_code}"})
+                self._json({"ok": False, "error": f"Webhook returned {status}"})
+            except urllib.error.HTTPError as e:
+              detail = e.read().decode("utf-8", errors="replace")
+              self._json({"ok": False, "error": f"Webhook upload failed (HTTP {e.code}): {detail[:300]}"})
             except Exception as e:
               self._json({"ok": False, "error": f"Webhook upload failed: {str(e)}"})
           
@@ -1757,8 +1862,13 @@ def main() -> None:
     print(f"Flowtrack Dashboard → {url}")
     print("Press Ctrl+C to stop.")
     # Auto-open browser (best-effort, non-blocking)
+    opener = "xdg-open"
+    if platform.system() == "Darwin":
+        opener = "open"
+    elif platform.system() == "Windows":
+        opener = "explorer"
     subprocess.Popen(
-        ["xdg-open", url],
+        [opener, url],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

@@ -16,6 +16,7 @@ Storage layout:
 """
 
 import os
+import platform
 import sys
 import json
 import time
@@ -91,6 +92,44 @@ def _app_name_from_pid(pid: str) -> str:
 
 def get_active_window_info() -> Tuple[str, str]:
     """Return (window_title, app_name) for the currently focused window."""
+
+    system_name = platform.system()
+
+    # ── Windows native (PowerShell + user32) ───────────────────────────────
+    if system_name == "Windows":
+        ps_script = (
+            "$sig='[DllImport(\"user32.dll\")]public static extern IntPtr GetForegroundWindow();"
+            "[DllImport(\"user32.dll\",SetLastError=true)]public static extern int GetWindowText(IntPtr hWnd,System.Text.StringBuilder text,int count);"
+            "[DllImport(\"user32.dll\")]public static extern uint GetWindowThreadProcessId(IntPtr hWnd,[ref] uint processId);';"
+            "Add-Type -MemberDefinition $sig -Name Win32 -Namespace Native -ErrorAction SilentlyContinue | Out-Null;"
+            "$h=[Native.Win32]::GetForegroundWindow();"
+            "$sb=New-Object System.Text.StringBuilder 1024;"
+            "[void][Native.Win32]::GetWindowText($h,$sb,$sb.Capacity);"
+            "$pid=0; [void][Native.Win32]::GetWindowThreadProcessId($h,[ref]$pid);"
+            "$p=(Get-Process -Id $pid -ErrorAction SilentlyContinue);"
+            "Write-Output $sb.ToString();"
+            "if ($p) { Write-Output $p.ProcessName }"
+        )
+        raw = _run(["powershell", "-NoProfile", "-Command", ps_script], timeout=3)
+        if raw:
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            if lines:
+                title = lines[0]
+                app = lines[1] if len(lines) > 1 else "unknown"
+                return title, app
+
+    # ── macOS native (AppleScript) ──────────────────────────────────────────
+    if system_name == "Darwin":
+        app = _run([
+            "osascript", "-e",
+            "tell application \"System Events\" to get name of first process whose frontmost is true",
+        ], timeout=3)
+        title = _run([
+            "osascript", "-e",
+            "tell application \"System Events\" to get name of front window of (first process whose frontmost is true)",
+        ], timeout=3)
+        if title:
+            return title, app or "unknown"
 
     # ── xdotool (X11) ────────────────────────────────────────────────────────
     title = _run(["xdotool", "getactivewindow", "getwindowname"])
