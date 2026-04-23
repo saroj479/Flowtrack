@@ -38,6 +38,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+VISION_API_KEY = os.getenv("VISION_API_KEY", "")  # For Google Vision or Claude Vision
 
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -250,6 +251,70 @@ def recent_screenshots(limit: int = 12) -> list[str]:
     return [f.name for f in files[:limit]]
 
 
+def analyze_screenshot_image(image_path: str, api_key: str = "", provider: str = "gemini") -> str | None:
+    """Analyze a screenshot image with vision API to detect distractions, social media, etc."""
+    try:
+        # Read image file and encode as base64
+        img_file = SCREENSHOTS_DIR / image_path
+        if not img_file.exists() or not img_file.is_file():
+            return None
+        
+        with open(img_file, "rb") as f:
+            import base64
+            img_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        if provider == "gemini" and api_key:
+            # Use Google Gemini Vision API
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+            payload = json.dumps({
+                "contents": [{
+                    "parts": [{
+                        "text": "Analyze this screenshot: What application is open? Is the user watching video (YouTube, Netflix, TikTok, etc)? Are they on social media (Instagram, Twitter, Facebook, etc)? List any distracting elements. What is their focus level? Be concise in 2-3 sentences."
+                    }, {
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": img_data
+                        }
+                    }]
+                }]
+            }).encode("utf-8")
+            
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                return text if text else None
+        
+        return None
+    except Exception as exc:
+        return None
+
+
+def export_logs_by_date(start_date: str = "", end_date: str = "") -> dict:
+    """Export logs for a date range. If empty, returns today's logs."""
+    try:
+        if not start_date:
+            start_date = datetime.date.today().isoformat()
+        if not end_date:
+            end_date = datetime.date.today().isoformat()
+        
+        start = datetime.date.fromisoformat(start_date)
+        end = datetime.date.fromisoformat(end_date)
+        
+        payload = {"exported_at": datetime.datetime.now().isoformat(timespec="seconds"), "logs": {}}
+        
+        current = start
+        while current <= end:
+            f = LOG_DIR / f"{current.isoformat()}.jsonl"
+            if f.exists():
+                payload["logs"][f.name] = f.read_text(encoding="utf-8")
+            current += datetime.timedelta(days=1)
+        
+        return payload
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def latest_report() -> str:
     if not REPORTS_DIR.exists():
         return ""
@@ -318,90 +383,209 @@ HTML = r"""<!DOCTYPE html>
 <title>Flowtrack Dashboard</title>
 <style>
 :root{
-  --bg:#0f172a;--card:#1e293b;--border:#334155;
-  --accent:#818cf8;--green:#34d399;--red:#f87171;
-  --yellow:#fbbf24;--text:#e2e8f0;--muted:#94a3b8;
+  --bg-dark:#0a0e27;--bg-light:#1a1f3a;--card:#16213e;--border:#2d3561;
+  --accent-1:#00d9ff;--accent-2:#ff006e;--accent-3:#ffbe0b;--accent-4:#8338ec;
+  --success:#00ff88;--danger:#ff4444;--warn:#ffaa00;
+  --text:#f0f0f0;--text-muted:#a0a0b0;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;padding-bottom:48px}
+body{
+  background:linear-gradient(135deg, #0a0e27 0%, #1a1f3a 25%, #16213e 50%, #0f172a 100%);
+  background-attachment:fixed;
+  color:var(--text);
+  font-family:'Segoe UI',system-ui,sans-serif;
+  min-height:100vh;
+  padding-bottom:48px;
+}
 /* Header */
-header{background:#0f172a;border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
-.logo{display:flex;align-items:center;gap:10px}
-.logo-icon{width:34px;height:34px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px}
-.logo h1{font-size:20px;font-weight:700;letter-spacing:-.5px}
-.logo h1 span{color:var(--accent)}
-.hdr-right{display:flex;align-items:center;gap:16px}
-.badge{display:flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border)}
-.badge.active{border-color:var(--green);color:var(--green);background:rgba(52,211,153,.08)}
-.badge.inactive{border-color:var(--red);color:var(--red);background:rgba(248,113,113,.08)}
-.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
-.badge.active .dot{animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+header{
+  background:linear-gradient(90deg, rgba(26,31,58,.95) 0%, rgba(22,33,62,.95) 100%);
+  border-bottom:2px solid var(--accent-1);
+  padding:16px 28px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+  backdrop-filter:blur(12px);
+  box-shadow:0 8px 32px rgba(0,217,255,.1);
+}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{
+  width:40px;height:40px;
+  background:linear-gradient(135deg,var(--accent-1),var(--accent-4));
+  border-radius:12px;display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:700;
+  box-shadow:0 0 20px rgba(0,217,255,.3);
+}
+.logo h1{font-size:22px;font-weight:800;letter-spacing:-1px;background:linear-gradient(135deg,var(--accent-1),var(--accent-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr-right{display:flex;align-items:center;gap:20px}
+.badge{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;font-size:11px;font-weight:700;border:1.5px solid}
+.badge.active{border-color:var(--success);color:var(--success);background:rgba(0,255,136,.08);box-shadow:0 0 15px rgba(0,255,136,.15)}
+.badge.inactive{border-color:var(--danger);color:var(--danger);background:rgba(255,68,68,.08);box-shadow:0 0 15px rgba(255,68,68,.15)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.badge.active .dot{animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1;scale:1}50%{opacity:.5;scale:1.2}}
 /* Main */
-main{max-width:1440px;margin:0 auto;padding:28px 24px;display:flex;flex-direction:column;gap:24px}
+main{max-width:1440px;margin:0 auto;padding:32px 24px;display:flex;flex-direction:column;gap:28px}
 /* Cards */
-.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
-.card-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px}
-.card-value{font-size:34px;font-weight:800;letter-spacing:-1.5px;line-height:1}
-.card-sub{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4}
-.c-accent{color:var(--accent)}.c-green{color:var(--green)}.c-yellow{color:var(--yellow)}.c-red{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.card{
+  background:linear-gradient(135deg, rgba(22,33,62,.6) 0%, rgba(26,31,58,.4) 100%);
+  border:1.5px solid var(--border);
+  border-radius:16px;padding:20px 24px;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(0,0,0,.3);
+  transition:all .3s ease;
+  position:relative;
+  overflow:hidden;
+}
+.card::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(circle, rgba(0,217,255,.1) 0%, transparent 70%);animation:drift 20s infinite;}
+@keyframes drift{0%{transform:translate(0,0)}50%{transform:translate(20px,-20px)}100%{transform:translate(0,0)}}
+.card:hover{border-color:var(--accent-1);box-shadow:0 12px 32px rgba(0,217,255,.2)}
+.card-label{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);margin-bottom:12px;opacity:.8}
+.card-value{font-size:36px;font-weight:900;letter-spacing:-2px;line-height:1;background:linear-gradient(135deg,var(--accent-1),var(--accent-4));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:8px 0}
+.card-sub{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5}
+.c-accent-1{color:var(--accent-1)}.c-accent-2{color:var(--accent-2)}.c-accent-3{color:var(--accent-3)}.c-success{color:var(--success)}.c-warn{color:var(--warn)}.c-danger{color:var(--danger)}
 /* Controls */
-.controls{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
-.ctrl-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:10px}
-.ctrl-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
-.btn{padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid transparent;cursor:pointer;transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.btn:active{transform:scale(.96)}
-.btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
-.btn-green{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
-.btn-red{background:rgba(248,113,113,.12);color:var(--red);border-color:rgba(248,113,113,.25)}
-.btn-yellow{background:rgba(251,191,36,.12);color:var(--yellow);border-color:rgba(251,191,36,.25)}
-.btn-accent{background:rgba(129,140,248,.12);color:var(--accent);border-color:rgba(129,140,248,.25)}
-.btn-muted{background:rgba(148,163,184,.08);color:var(--muted);border-color:var(--border)}
-.sep{width:1px;height:28px;background:var(--border);margin:0 2px}
-/* Two column */
-.two-col{display:grid;grid-template-columns:1fr 400px;gap:18px;align-items:start}
+.controls{
+  background:linear-gradient(135deg, rgba(22,33,62,.6) 0%, rgba(26,31,58,.4) 100%);
+  border:1.5px solid var(--border);
+  border-radius:16px;padding:20px 24px;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(0,0,0,.3);
+}
+.ctrl-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px}
+.ctrl-label{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)}
+.btn{
+  padding:10px 20px;border-radius:10px;font-size:12px;font-weight:700;
+  border:1.5px solid transparent;cursor:pointer;
+  transition:all .2s ease;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+  backdrop-filter:blur(8px);
+}
+.btn:active{transform:scale(.95);box-shadow:inset 0 2px 8px rgba(0,0,0,.5)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn-success{background:rgba(0,255,136,.15);color:var(--success);border-color:rgba(0,255,136,.3);box-shadow:0 0 15px rgba(0,255,136,.1)}
+.btn-success:hover{box-shadow:0 0 25px rgba(0,255,136,.25);border-color:rgba(0,255,136,.6)}
+.btn-danger{background:rgba(255,68,68,.15);color:var(--danger);border-color:rgba(255,68,68,.3);box-shadow:0 0 15px rgba(255,68,68,.1)}
+.btn-danger:hover{box-shadow:0 0 25px rgba(255,68,68,.25)}
+.btn-warn{background:rgba(255,170,0,.15);color:var(--warn);border-color:rgba(255,170,0,.3);box-shadow:0 0 15px rgba(255,170,0,.1)}
+.btn-warn:hover{box-shadow:0 0 25px rgba(255,170,0,.25)}
+.btn-accent{background:rgba(0,217,255,.15);color:var(--accent-1);border-color:rgba(0,217,255,.3);box-shadow:0 0 15px rgba(0,217,255,.1)}
+.btn-accent:hover{box-shadow:0 0 25px rgba(0,217,255,.25)}
+.btn-accent2{background:rgba(255,0,110,.15);color:var(--accent-2);border-color:rgba(255,0,110,.3);box-shadow:0 0 15px rgba(255,0,110,.1)}
+.btn-accent2:hover{box-shadow:0 0 25px rgba(255,0,110,.25)}
+.btn-muted{background:rgba(160,160,176,.08);color:var(--text-muted);border-color:var(--border)}
+.btn-muted:hover{background:rgba(160,160,176,.15);border-color:rgba(160,160,176,.5)}
+.sep{width:2px;height:30px;background:linear-gradient(to bottom, transparent, var(--border), transparent);margin:0 4px}
 /* Panel */
-.panel{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-.panel-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.panel-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
-.pill{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:700}
-.pill-green{background:rgba(52,211,153,.12);color:var(--green)}
-.pill-accent{background:rgba(129,140,248,.12);color:var(--accent)}
+.panel{
+  background:linear-gradient(135deg, rgba(22,33,62,.6) 0%, rgba(26,31,58,.4) 100%);
+  border:1.5px solid var(--border);
+  border-radius:16px;overflow:hidden;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(0,0,0,.3);
+}
+.panel-hdr{
+  padding:14px 20px;
+  border-bottom:1.5px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(90deg, rgba(0,217,255,.05) 0%, transparent 100%);
+}
+.panel-title{font-size:13px;font-weight:800;display:flex;align-items:center;gap:10px;color:var(--accent-1)}
+.pill{font-size:10px;padding:3px 10px;border-radius:999px;font-weight:800;text-transform:uppercase}
+.pill-success{background:rgba(0,255,136,.2);color:var(--success)}
+.pill-accent{background:rgba(0,217,255,.2);color:var(--accent-1)}
+/* Input fields */
+input[type="text"],input[type="password"],input[type="email"],textarea,select{
+  background:linear-gradient(135deg, rgba(10,14,39,.8) 0%, rgba(26,31,58,.6) 100%);
+  border:1.5px solid var(--border);
+  color:var(--text);
+  border-radius:10px;
+  padding:10px 12px;
+  font-size:12px;
+  transition:all .3s ease;
+  font-family:inherit;
+}
+input[type="text"]:focus,input[type="password"]:focus,textarea:focus,select:focus{
+  outline:none;
+  border-color:var(--accent-1);
+  box-shadow:0 0 20px rgba(0,217,255,.2);
+  background:linear-gradient(135deg, rgba(0,217,255,.1) 0%, rgba(26,31,58,.8) 100%);
+}
+input[type="date"],input[type="datetime-local"]{
+  background:linear-gradient(135deg, rgba(10,14,39,.8) 0%, rgba(26,31,58,.6) 100%);
+  border:1.5px solid var(--border);
+  color:var(--text);
+  border-radius:10px;
+  padding:10px 12px;
+  font-size:12px;
+}
 /* Log table */
 .tbl-wrap{overflow-y:auto;max-height:420px}
 table{width:100%;border-collapse:collapse;font-size:11.5px}
-th{padding:8px 12px;text-align:left;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card)}
-td{padding:6px 12px;border-bottom:1px solid rgba(51,65,85,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;font-family:monospace}
+th{padding:10px 12px;text-align:left;color:var(--accent-1);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;border-bottom:1.5px solid var(--border);position:sticky;top:0;background:linear-gradient(90deg, rgba(0,217,255,.08) 0%, transparent 100%)}
+td{padding:8px 12px;border-bottom:1px solid rgba(45,53,97,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;font-family:monospace;font-size:11px}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,.025)}
-.ev-change{color:var(--accent)}.ev-interval{color:var(--muted)}.ev-ts{color:var(--muted);font-size:10.5px}
+tr:hover td{background:rgba(0,217,255,.05)}
+.ev-change{color:var(--accent-2);font-weight:700}.ev-interval{color:var(--text-muted)}.ev-ts{color:var(--text-muted);font-size:10px}
 /* Screenshots */
 .shots-grid{padding:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;overflow-y:auto;max-height:420px}
 .shot-wrap{display:flex;flex-direction:column;gap:3px}
-.shot{border-radius:7px;overflow:hidden;cursor:zoom-in;border:2px solid transparent;transition:border-color .15s,transform .12s;aspect-ratio:16/10;background:#0f172a}
-.shot:hover{border-color:var(--accent);transform:scale(1.03)}
+.shot{
+  border-radius:12px;overflow:hidden;cursor:zoom-in;
+  border:2px solid transparent;
+  transition:all .3s ease;
+  aspect-ratio:16/10;
+  background:linear-gradient(135deg, #0a0e27, #1a1f3a);
+  position:relative;
+  box-shadow:0 4px 12px rgba(0,0,0,.3);
+}
+.shot::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg, rgba(0,217,255,0), rgba(255,0,110,0));opacity:0;transition:opacity .3s}
+.shot:hover::before{opacity:0.2}
+.shot:hover{border-color:var(--accent-1);transform:scale(1.05);box-shadow:0 8px 20px rgba(0,217,255,.3)}
 .shot img{width:100%;height:100%;object-fit:cover;display:block}
-.shot-ts{font-size:9.5px;color:var(--muted);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shot-ts{font-size:9px;color:var(--text-muted);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Analysis */
-.analysis{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-.analysis-toolbar{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.analysis-output{padding:18px 20px;font-family:monospace;font-size:12px;line-height:1.75;white-space:pre-wrap;word-break:break-word;max-height:520px;overflow-y:auto;color:var(--muted)}
-.ao-done{color:var(--text)}.ao-error{color:var(--red)}.ao-running{color:var(--yellow);animation:blink 1.2s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+.analysis{
+  background:linear-gradient(135deg, rgba(22,33,62,.6) 0%, rgba(26,31,58,.4) 100%);
+  border:1.5px solid var(--border);
+  border-radius:16px;overflow:hidden;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(0,0,0,.3);
+  margin-bottom:24px;
+}
+.analysis-toolbar{
+  padding:14px 20px;
+  border-bottom:1.5px solid var(--border);
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:linear-gradient(90deg, rgba(0,217,255,.05) 0%, transparent 100%);
+}
+.analysis-output{
+  padding:20px;
+  font-family:'Courier New',monospace;
+  font-size:12px;
+  line-height:1.8;
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:520px;
+  overflow-y:auto;
+  color:var(--text-muted);
+}
+.ao-done{color:var(--text);background:linear-gradient(to bottom, rgba(0,255,136,.02), transparent)}.ao-error{color:var(--danger);background:linear-gradient(to bottom, rgba(255,68,68,.02), transparent)}.ao-running{color:var(--warn);animation:pulse-text 1s infinite}
+@keyframes pulse-text{0%,100%{opacity:1}50%{opacity:.7}}
 /* Modal */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:999;align-items:center;justify-content:center}
-.modal.open{display:flex}
-.modal img{max-width:95vw;max-height:90vh;border-radius:10px;box-shadow:0 30px 80px rgba(0,0,0,.8)}
-.modal-x{position:fixed;top:18px;right:22px;background:var(--card);border:1px solid var(--border);color:var(--text);width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:999;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal.open{display:flex;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal img{max-width:95vw;max-height:90vh;border-radius:16px;box-shadow:0 30px 80px rgba(0,217,255,.3);border:2px solid var(--accent-1)}
+.modal-x{position:fixed;top:20px;right:24px;background:linear-gradient(135deg,var(--accent-2),var(--accent-4));border:none;color:var(--text);width:40px;height:40px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;z-index:1000;transition:all .2s;box-shadow:0 0 25px rgba(255,0,110,.3)}
+.modal-x:hover{transform:scale(1.1);box-shadow:0 0 40px rgba(255,0,110,.5)}
 /* Misc */
-.rtag{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
-.rdot{width:5px;height:5px;border-radius:50%;background:var(--muted);transition:background .3s}
-.rdot.on{background:var(--green)}
-.empty{text-align:center;color:var(--muted);padding:32px 16px;font-size:12px}
-::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.rtag{font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:7px;font-weight:700}
+.rdot{width:6px;height:6px;border-radius:50%;background:var(--text-muted);transition:background .3s}
+.rdot.on{background:var(--success);box-shadow:0 0 10px var(--success)}
+.empty{text-align:center;color:var(--text-muted);padding:32px 16px;font-size:12px}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:linear-gradient(to bottom, var(--accent-1), var(--accent-4));border-radius:3px}::-webkit-scrollbar-thumb:hover{background:linear-gradient(to bottom, var(--accent-2), var(--accent-1))}
 @media(max-width:1100px){.cards{grid-template-columns:repeat(2,1fr)}.two-col{grid-template-columns:1fr}}
-@media(max-width:640px){.cards{grid-template-columns:1fr}header{padding:11px 14px}main{padding:14px 12px}}
+@media(max-width:640px){.cards{grid-template-columns:1fr}header{padding:12px 16px}main{padding:16px 12px}}
 </style>
 </head>
 <body>
@@ -471,6 +655,33 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <button class="btn btn-muted" onclick="syncJson()">☁ Upload Now</button>
     </div>
     <div id="syncMsg" style="margin-top:8px;font-size:11px;color:var(--muted)">Cloud backup is optional. Choose provider, add credentials, then click Upload.</div>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div class="ctrl-row" style="margin-top:0">
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700">📅 Backup Date Range:</label>
+        <select id="backupType" class="btn btn-muted" onchange="updateBackupDateUI()" style="padding:7px 10px">
+          <option value="today">Today only</option>
+          <option value="all">All logs</option>
+          <option value="custom">Custom date range</option>
+        </select>
+      </div>
+      <div id="dateRangeDiv" style="display:none;margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label style="font-size:11px;color:var(--text-muted)">From:</label>
+        <input id="backupStartDate" type="date" style="min-width:140px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:11px">
+        <label style="font-size:11px;color:var(--text-muted)">To:</label>
+        <input id="backupEndDate" type="date" style="min-width:140px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:11px">
+        <button class="btn btn-accent" onclick="backupWithDateRange()">✓ Download/Upload</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div class="ctrl-row" style="margin-top:0">
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700">📷 Idle Detection (Optional):</label>
+        <button class="btn btn-accent2" onclick="requestCameraPermission()">🎥 Enable Camera</button>
+      </div>
+      <div id="cameraMsg" style="margin-top:8px;font-size:11px;display:none"></div>
+      <p style="margin-top:8px;font-size:10px;color:var(--text-muted)">When enabled, Flowtrack will capture your face silently (no flash) every 5 minutes while a window is open. This helps detect if you're actually working or distracted. Completely optional.</p>
+    </div>
   </div>
 
   <!-- ── Live Log + Screenshots ── -->
@@ -960,6 +1171,109 @@ async function chatAsk() {
   }
 }
 
+// ── Camera Capture (new feature) ───────────────────────────────────────────────
+async function requestCameraPermission() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video: {width: 1280, height: 720}, audio: false});
+    // Permission granted - stop the stream
+    stream.getTracks().forEach(track => track.stop());
+    const msg = document.getElementById('cameraMsg');
+    msg.textContent = '✓ Camera permission granted! Idle window detection enabled.';
+    msg.style.color = 'var(--success)';
+    msg.style.display = 'block';
+    localStorage.setItem('flowtrack_camera_enabled', 'true');
+  } catch (err) {
+    const msg = document.getElementById('cameraMsg');
+    if (err.name === 'NotAllowedError') {
+      msg.textContent = 'Camera permission denied. To enable: 1) reload page, 2) click allow, 3) click Enable Camera.';
+    } else {
+      msg.textContent = 'Camera not available: ' + err.message;
+    }
+    msg.style.color = 'var(--danger)';
+    msg.style.display = 'block';
+  }
+}
+
+// ── Backup Date Range (new feature) ────────────────────────────────────────────
+function updateBackupDateUI() {
+  const backupType = document.getElementById('backupType').value;
+  const dateRangeDiv = document.getElementById('dateRangeDiv');
+  
+  if (backupType === 'all') {
+    dateRangeDiv.style.display = 'none';
+  } else if (backupType === 'today') {
+    dateRangeDiv.style.display = 'none';
+  } else {
+    dateRangeDiv.style.display = 'flex';
+  }
+}
+
+async function backupWithDateRange() {
+  const backupType = document.getElementById('backupType').value;
+  const provider = document.getElementById('syncProvider').value;
+  const target = document.getElementById('syncTarget').value.trim();
+  const apiKey = document.getElementById('syncApiKey').value.trim();
+  const msg = document.getElementById('syncMsg');
+  
+  if (provider === 'gist' && !apiKey) {
+    msg.textContent = '✗ GitHub token required for Gist.';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  if (provider === 'webhook' && !target) {
+    msg.textContent = '✗ Webhook URL required.';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  
+  let startDate = '';
+  let endDate = '';
+  
+  if (backupType === 'custom') {
+    startDate = document.getElementById('backupStartDate').value;
+    endDate = document.getElementById('backupEndDate').value;
+    if (!startDate || !endDate) {
+      msg.textContent = '✗ Select start and end dates.';
+      msg.style.color = 'var(--danger)';
+      return;
+    }
+  }
+  
+  msg.style.color = 'var(--warn)';
+  msg.textContent = 'Exporting ' + backupType + ' logs...';
+  
+  const d = await api('/api/backup-date-range', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      backup_type: backupType,
+      start_date: startDate,
+      end_date: endDate,
+      provider,
+      target,
+      api_key: apiKey,
+    }),
+  });
+  
+  if (!d) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = '✗ No response from server.';
+    return;
+  }
+  
+  if (d.ok) {
+    msg.style.color = 'var(--success)';
+    if (d.download_url) {
+      msg.innerHTML = '✓ ' + d.message + ' <a href="' + d.download_url + '" style="color:var(--accent-1);text-decoration:underline">Download here</a>';
+    } else {
+      msg.textContent = '✓ ' + d.message;
+    }
+  } else {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = '✗ ' + (d.error || 'Backup failed.');
+  }
+}
+
 // ── Modal ─────────────────────────────────────────────────────────────────────
 function openModal(src) {
   document.getElementById('modalImg').src = src;
@@ -1141,6 +1455,32 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "reply": reply})
           else:
             self._json({"ok": False, "error": "LLM request failed. Check provider, model, API key, and network."})
+
+        elif path == "/api/backup-date-range":
+          backup_type = str(body.get("backup_type", "today"))
+          start_date = str(body.get("start_date", ""))
+          end_date = str(body.get("end_date", ""))
+          provider = str(body.get("provider", "gist"))
+          target = str(body.get("target", ""))
+          api_key = str(body.get("api_key", ""))
+          
+          # Export logs by date
+          data = export_logs_by_date(start_date, end_date) if backup_type == "custom" else (
+            export_logs_by_date() if backup_type == "today" else (
+              {"exported_at": datetime.datetime.now().isoformat(timespec="seconds"), "logs": {f.name: f.read_text(encoding="utf-8") for f in LOG_DIR.glob("*.jsonl")}} if backup_type == "all" else {}
+            )
+          )
+          
+          if "error" in data:
+            self._json({"ok": False, "error": data.get("error")})
+            return
+          
+          # Upload to cloud
+          result = sync_json_to_cloud(provider, target, api_key)
+          if result["ok"]:
+            self._json({"ok": True, "message": result.get("message", "Backup successful"), "url": result.get("url", "")})
+          else:
+            self._json({"ok": False, "error": result.get("error", "Backup failed")})
 
         else:
             self.send_response(404)
