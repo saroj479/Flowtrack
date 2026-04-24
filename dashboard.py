@@ -1147,6 +1147,17 @@ function updateAnalysisPlaceholders() {
     : ('API key required for ' + provider);
 }
 
+function ollamaErrHtml(errMsg) {
+  const m = errMsg && errMsg.match(/Run:\s*(ollama\s+\S+(?:\s+\S+)?)/i);
+  if (!m) return null;
+  const cmd = m[1];
+  return `<span style="color:var(--danger)">${errMsg.replace(cmd,'').replace('Run:','').trim()}</span>
+<div style="display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;">
+  <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);flex:1">Run: ${cmd}</code>
+  <button onclick="navigator.clipboard.writeText('${cmd}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})" style="background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);border-radius:5px;padding:3px 10px;font-size:11px;cursor:pointer;white-space:nowrap">Copy</button>
+</div>`;
+}
+
 async function verifyChatKey() {
   const provider = document.getElementById('chatProvider').value;
   const model = document.getElementById('chatModel').value.trim() || 'llama3';
@@ -1186,8 +1197,16 @@ async function verifyChatKey() {
       ? 'Ollama connection verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK')
       : ('API key verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK'));
   } else {
-    statusDiv.style.color = 'var(--red)';
-    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
+    const errMsg = d ? d.error : 'No response';
+    const html = ollamaErrHtml(errMsg);
+    if (html) {
+      statusDiv.style.color = '';
+      statusDiv.innerHTML = html;
+    } else {
+      statusDiv.style.color = 'var(--danger)';
+      statusDiv.textContent = 'Verification failed: ' + errMsg;
+    }
+    statusDiv.style.display = 'block';
   }
 }
 
@@ -1234,8 +1253,16 @@ async function verifyAnalysisKey() {
       ? 'Ollama connection verified for analysis!'
       : 'API key verified for analysis!';
   } else {
-    statusDiv.style.color = 'var(--red)';
-    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
+    const errMsg = d ? d.error : 'No response';
+    const html = ollamaErrHtml(errMsg);
+    if (html) {
+      statusDiv.style.color = '';
+      statusDiv.innerHTML = html;
+    } else {
+      statusDiv.style.color = 'var(--danger)';
+      statusDiv.textContent = 'Verification failed: ' + errMsg;
+    }
+    statusDiv.style.display = 'block';
   }
 }
 
@@ -1267,7 +1294,14 @@ async function chatAsk() {
     out.textContent = d.reply;
   } else {
     out.className = 'analysis-output ao-error';
-    out.textContent = d.error || 'Chat failed.';
+    const errMsg = d.error || 'Chat failed.';
+    const html = ollamaErrHtml(errMsg);
+    if (html) {
+      out.style.fontFamily = 'inherit';
+      out.innerHTML = html;
+    } else {
+      out.textContent = errMsg;
+    }
   }
 }
 
