@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowtrack | Local-first Focus Tracking</title>
+  <meta name="description" content="Flowtrack is a local-first focus tracker with an AI dashboard, safe demo mode, and optional Ollama or API-key providers.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="Flowtrack home">
+        <span class="brand-mark">⚡</span>
+        <span class="brand-text">Flowtrack</span>
+      </a>
+      <nav class="nav">
+        <a href="#features">Features</a>
+        <a href="#demo">Try Demo</a>
+        <a href="#local">Run Locally</a>
+        <a class="github-link" href="https://github.com/saroj479/Flowtrack" target="_blank" rel="noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.02c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.34-1.75-1.34-1.75-1.09-.75.08-.74.08-.74 1.2.09 1.84 1.24 1.84 1.24 1.08 1.84 2.82 1.31 3.51 1 .11-.78.42-1.31.76-1.61-2.67-.31-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.23-.13-.3-.54-1.53.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.25 2.88.12 3.18.77.85 1.24 1.92 1.24 3.23 0 4.61-2.81 5.61-5.49 5.92.43.37.82 1.11.82 2.24v3.32c0 .32.22.7.83.58A12 12 0 0 0 12 .5Z"></path></svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="home">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Local-first productivity tracking</p>
+          <h1>See where your focus goes, then fix it with AI that runs your way.</h1>
+          <p class="lede">Flowtrack watches active windows on your own laptop, scores your focus, flags distraction patterns, and gives you a plain-English action plan. The public site uses safe demo data only. Real tracking stays local.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#demo">Try Demo</a>
+            <a class="btn btn-secondary" href="#local">Run Locally</a>
+          </div>
+          <ul class="hero-points">
+            <li>No account required for the demo</li>
+            <li>Ollama local or cloud providers with API key</li>
+            <li>Real data never exposed on this public site</li>
+          </ul>
+        </div>
+        <div class="hero-visual" aria-label="Mock Flowtrack dashboard preview">
+          <div class="browser-frame">
+            <div class="browser-chrome">
+              <span></span><span></span><span></span>
+              <div class="browser-title">Flowtrack dashboard preview</div>
+            </div>
+            <div class="preview-grid">
+              <article class="preview-card metric-card">
+                <div class="label">Focus Score</div>
+                <div class="value">74</div>
+                <div class="sub">better than last week</div>
+              </article>
+              <article class="preview-card metric-card">
+                <div class="label">App Switches/hr</div>
+                <div class="value">18</div>
+                <div class="sub">down from 27</div>
+              </article>
+              <article class="preview-card metric-card">
+                <div class="label">Deep Work</div>
+                <div class="value">2.4h</div>
+                <div class="sub">in 25+ min blocks</div>
+              </article>
+              <article class="preview-card metric-card accent-card">
+                <div class="label">Top Distraction</div>
+                <div class="value">YouTube</div>
+                <div class="sub">42 min / 6 visits</div>
+              </article>
+              <article class="preview-card report-preview">
+                <div class="section-title">Readable AI Report</div>
+                <div class="report-chip-row">
+                  <span>Focus 74</span>
+                  <span>242 switches</span>
+                  <span>3 rabbit holes</span>
+                </div>
+                <div class="report-box">
+                  <strong>Top problem</strong>
+                  <p>Afternoon switching was 58% higher than morning, which is dragging your score.</p>
+                </div>
+                <div class="report-box">
+                  <strong>Tomorrow</strong>
+                  <p>Block video sites from 1 PM to 4 PM and keep one task list visible.</p>
+                </div>
+              </article>
+              <article class="preview-card chat-preview">
+                <div class="section-title">Guided AI Chat</div>
+                <div class="bubble bubble-user">What is the biggest pattern hurting my focus?</div>
+                <div class="bubble bubble-ai">Your main problem is rapid context switching: 27.6 app switches/hr and repeated Chrome → code jumps.</div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="trust-band">
+        <div>Private by default</div>
+        <div>Demo uses mock data only</div>
+        <div>Ollama or API-key providers</div>
+        <div>Run locally on your own machine</div>
+      </section>
+
+      <section id="features" class="section-block">
+        <div class="section-head">
+          <p class="eyebrow">What it does</p>
+          <h2>Built for people who want signal, not surveillance theater.</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3>Track actual work context</h3>
+            <p>See app changes, window titles, focus score, switching rate, deep-work blocks, and recurring distraction triggers.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Readable AI summaries</h3>
+            <p>Get top problems, numbers, and tomorrow-ready actions instead of an overwhelming raw log dump.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Chat about your own patterns</h3>
+            <p>Ask follow-up questions about your day, your habits, your distractions, and your current Flowtrack setup.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Choose your AI path</h3>
+            <p>Use Ollama locally with no key, or plug in OpenAI, Anthropic, Gemini, Groq, xAI, OpenRouter, Together, and more.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="demo" class="section-block demo-section">
+        <div class="section-head section-head-split">
+          <div>
+            <p class="eyebrow">Try demo</p>
+            <h2>Explore Flowtrack with safe sample data.</h2>
+          </div>
+          <p class="section-note">No login. No device access. No real screenshots. This is a product walkthrough using mock sessions.</p>
+        </div>
+        <div class="demo-layout">
+          <aside class="demo-sidebar">
+            <div class="persona-list" role="tablist" aria-label="Demo personas">
+              <button class="persona is-active" data-persona="builder">Indie builder</button>
+              <button class="persona" data-persona="student">Student</button>
+              <button class="persona" data-persona="designer">Designer</button>
+            </div>
+            <div class="provider-box">
+              <h3>In the real app</h3>
+              <ul>
+                <li>Choose <strong>Auto model</strong> by default</li>
+                <li>Use <strong>Ollama local</strong> or <strong>cloud API key</strong></li>
+                <li>Refresh provider models if your account exposes them</li>
+              </ul>
+            </div>
+          </aside>
+          <div class="demo-panel">
+            <div class="demo-header">
+              <div>
+                <div class="eyebrow demo-label">Sample dashboard</div>
+                <h3 id="demoTitle">Indie builder on a deep-work day</h3>
+              </div>
+              <span class="demo-badge">Mock data</span>
+            </div>
+            <div class="demo-metrics" id="demoMetrics"></div>
+            <div class="demo-columns">
+              <article class="demo-card">
+                <h4>What Flowtrack would flag</h4>
+                <ul id="demoFindings"></ul>
+              </article>
+              <article class="demo-card">
+                <h4>Recommended move for tomorrow</h4>
+                <div id="demoPlan" class="plan-block"></div>
+              </article>
+            </div>
+            <div class="demo-chat-card">
+              <div class="demo-chat-head">
+                <h4>Demo coach chat</h4>
+                <div class="quick-prompts">
+                  <button class="mini-btn" data-prompt="biggest">Biggest problem</button>
+                  <button class="mini-btn" data-prompt="tomorrow">Tomorrow plan</button>
+                  <button class="mini-btn" data-prompt="rule">One simple rule</button>
+                </div>
+              </div>
+              <div class="demo-chat-thread" id="demoChat"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="local" class="section-block local-section">
+        <div class="section-head">
+          <p class="eyebrow">Run locally</p>
+          <h2>Two simple ways to use the real product on your machine.</h2>
+        </div>
+        <div class="path-grid">
+          <article class="path-card">
+            <div class="path-tag">Path A</div>
+            <h3>Local AI with Ollama</h3>
+            <p>Best for privacy. No API key. Everything stays on your laptop.</p>
+            <ol>
+              <li>Install Flowtrack locally</li>
+              <li>Install Ollama</li>
+              <li>Run <code>ollama pull llama3</code></li>
+              <li>Open the dashboard and keep model on <strong>Auto</strong></li>
+            </ol>
+          </article>
+          <article class="path-card">
+            <div class="path-tag">Path B</div>
+            <h3>Cloud AI with API key</h3>
+            <p>Best if you want faster responses or already pay for a provider.</p>
+            <ol>
+              <li>Pick provider in the dashboard</li>
+              <li>Paste API key</li>
+              <li>Leave model on <strong>Auto</strong> or choose from the dropdown</li>
+              <li>Chat or run analysis</li>
+            </ol>
+          </article>
+          <article class="path-card">
+            <div class="path-tag">Install</div>
+            <h3>Developer or power user</h3>
+            <p>Clone the repo and use the current local-first stack directly.</p>
+            <div class="code-stack">
+              <code>git clone https://github.com/saroj479/Flowtrack.git</code>
+              <code>cd Flowtrack</code>
+              <code>bash install.sh</code>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-block privacy-section">
+        <div class="privacy-card">
+          <div>
+            <p class="eyebrow">Why the public demo is separate</p>
+            <h2>Real tracking stays local until you choose to run it on your own machine.</h2>
+            <p>That is the correct product boundary right now. The demo helps non-technical users understand the idea without exposing screenshots, logs, window titles, or system permissions to a hosted website.</p>
+          </div>
+          <div class="privacy-points">
+            <div><strong>Public site:</strong> landing page + safe demo only</div>
+            <div><strong>Local app:</strong> real tracking, local screenshots, real analysis</div>
+            <div><strong>Later:</strong> optional Google login only when you add a real cloud product</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Flowtrack is local-first. This branch is the public landing site for Vercel.</p>
+      <a href="https://github.com/saroj479/Flowtrack" target="_blank" rel="noreferrer">Open the repository</a>
+    </footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
