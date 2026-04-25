@@ -784,6 +784,15 @@ tr:hover td{background:rgba(255,255,255,.03)}
   overflow-y:auto;
   color:#a3a3a3;
 }
+.analysis-output.analysis-rich{font-family:'Inter',system-ui,sans-serif;line-height:1.55;color:var(--text)}
+.report-metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.report-chip{padding:5px 9px;border:1px solid var(--border);border-radius:999px;font-size:11px;background:var(--surface-2);color:var(--muted)}
+.report-chip strong{color:var(--text);font-weight:700}
+.report-card{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:10px 0}
+.report-card h4{margin:0 0 8px 0;font-size:12px;letter-spacing:.3px;text-transform:uppercase;color:var(--muted)}
+.report-card p{margin:0 0 8px 0;font-size:13px;color:var(--text)}
+.report-card ul{margin:0;padding-left:18px}
+.report-card li{margin:6px 0;color:var(--text);font-size:13px}
 .chat-thread{font-family:'Inter',system-ui,sans-serif;line-height:1.45;white-space:normal}
 .msg{display:flex;margin:10px 0}
 .msg.user{justify-content:flex-end}
@@ -972,8 +981,8 @@ tr:hover td{background:rgba(255,255,255,.03)}
         <option value="anthropic">Anthropic</option>
         <option value="gemini">Gemini</option>
       </select>
-      <input id="analysisModel" list="analysisModelList" placeholder="Model name" style="flex:1;min-width:200px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="llama3">
-      <datalist id="analysisModelList"></datalist>
+      <select id="analysisModel" class="btn btn-muted" style="flex:1;min-width:220px;padding:7px 10px"></select>
+      <button class="btn btn-muted" style="font-size:11px;padding:7px 10px" onclick="updateModelList('analysis', true)">↻ Models</button>
       <input id="analysisApiKey" type="password" placeholder="Not needed for Ollama (required for cloud providers)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <button class="btn btn-yellow" onclick="verifyAnalysisKey()">✓ Verify Key</button>
     </div>
@@ -1003,8 +1012,7 @@ tr:hover td{background:rgba(255,255,255,.03)}
         <option value="anthropic">Anthropic (requires API key)</option>
         <option value="gemini">Gemini (requires API key)</option>
       </select>
-      <input id="chatModel" list="chatModelList" placeholder="Model name" value="llama3" style="min-width:200px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
-      <datalist id="chatModelList"></datalist>
+      <select id="chatModel" class="btn btn-muted" style="min-width:220px;flex:1;padding:7px 10px"></select>
       <button class="btn btn-muted" style="font-size:11px;padding:7px 10px" onclick="updateModelList('chat', true)">↻ Models</button>
       <input id="chatApiKey" type="password" placeholder="API key (not needed for Ollama)" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <input id="chatBaseUrl" placeholder="Custom base URL (optional)" style="min-width:220px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
@@ -1088,14 +1096,19 @@ async function fetchLogs() {
     return;
   }
   tbody.innerHTML = rows.map(e => {
-    const t   = (e.ts || '').split('T')[1] || e.ts || '';
-    const cls = e.event === 'change' ? 'ev-change' : 'ev-interval';
+    const tRaw = (e.ts || '').split('T')[1] || e.ts || '';
+    const evtRaw = e.event || '';
+    const appRaw = (e.app || 'unknown').substring(0, 16);
+    const t = escHtml(tRaw);
+    const evt = escHtml(evtRaw);
+    const app = escHtml(appRaw);
+    const cls = evtRaw === 'change' ? 'ev-change' : 'ev-interval';
     const dur = e.duration !== undefined ? Math.round(e.duration) : '';
-    const ttl = (e.title || '').replace(/</g,'&lt;').substring(0, 90);
+    const ttl = escHtml((e.title || '').substring(0, 90));
     return `<tr>
       <td class="ev-ts">${t}</td>
-      <td class="${cls}">${e.event || ''}</td>
-      <td>${(e.app || 'unknown').substring(0, 16)}</td>
+      <td class="${cls}">${evt}</td>
+      <td>${app}</td>
       <td style="max-width:280px" title="${ttl}">${ttl}</td>
       <td style="text-align:right;color:var(--muted)">${dur}</td>
     </tr>`;
@@ -1138,14 +1151,13 @@ async function svc(action) {
 async function toggleAutoStart(enable) {
   const action = enable ? 'enable' : 'disable';
   try {
-    const r = await api('/api/service', {
+    const d = await api('/api/service', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({action}),
     });
-    const d = await r.json();
-    if (!d.ok) {
-      document.getElementById('svcTxt').textContent = d.error || 'Auto-start change failed';
+    if (!d || !d.ok) {
+      document.getElementById('svcTxt').textContent = (d && d.error) || 'Auto-start change failed';
       document.getElementById('autoStartToggle').checked = !enable;
     } else {
       document.getElementById('svcTxt').textContent = enable ? 'Auto-start enabled (starts on login)' : 'Auto-start disabled';
@@ -1157,9 +1169,8 @@ async function toggleAutoStart(enable) {
 
 async function checkAutoStart() {
   try {
-    const r = await fetch('/api/autostart');
-    if (!r.ok) return;
-    const d = await r.json();
+    const d = await api('/api/autostart');
+    if (!d) return;
     const cb = document.getElementById('autoStartToggle');
     if (cb) cb.checked = d.enabled;
   } catch(e) {}
@@ -1176,13 +1187,8 @@ async function runAnalysis(useAI) {
   
   if (useAI) {
     provider = document.getElementById('analysisProvider').value;
-    model = document.getElementById('analysisModel').value.trim();
+    model = normalizeModelValue(document.getElementById('analysisModel').value.trim());
     apiKey = document.getElementById('analysisApiKey').value.trim();
-    
-    if (provider !== 'none' && provider !== 'ollama' && !model) {
-      setAnalysisUI('error', 'Error: Model name is required for ' + provider);
-      return;
-    }
   }
   
   await api('/api/analyze', {
@@ -1213,8 +1219,52 @@ async function pollAnalysis() {
 
 function setAnalysisUI(status, text) {
   const el = document.getElementById('analysisOut');
+  if (status === 'done') {
+    el.className = 'analysis-output analysis-rich ao-done';
+    el.innerHTML = renderAnalysisReport(text || 'No report output.');
+    return;
+  }
   el.className = 'analysis-output ao-' + status;
   el.textContent = text;
+}
+
+function _escapeHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderAnalysisReport(text) {
+  const raw = String(text || '').trim();
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return '<div class="empty" style="padding:8px 0">No report yet.</div>';
+
+  const score = raw.match(/focus\s*score[^\d]{0,8}(\d+(?:\.\d+)?)/i);
+  const events = raw.match(/(\d+)\s+events?/i);
+  const switches = raw.match(/(\d+)\s+(?:app\s+)?switch(?:es)?/i);
+
+  let html = '<div class="report-metrics">';
+  if (score) html += `<span class="report-chip">Focus score: <strong>${_escapeHtml(score[1])}</strong></span>`;
+  if (events) html += `<span class="report-chip">Events: <strong>${_escapeHtml(events[1])}</strong></span>`;
+  if (switches) html += `<span class="report-chip">Switches: <strong>${_escapeHtml(switches[1])}</strong></span>`;
+  html += '</div>';
+
+  const bullets = [];
+  const paras = [];
+  for (const ln of lines) {
+    if (/^(?:[-*]|\d+\.)\s+/.test(ln)) bullets.push(ln.replace(/^(?:[-*]|\d+\.)\s+/, ''));
+    else paras.push(ln.replace(/^#+\s*/, '').replace(/\*\*/g, ''));
+  }
+
+  const summary = paras.shift() || 'Analysis summary';
+  html += `<div class="report-card"><h4>Summary</h4><p>${_escapeHtml(summary)}</p></div>`;
+
+  if (bullets.length) {
+    html += '<div class="report-card"><h4>Key Findings</h4><ul>' + bullets.map(b => `<li>${_escapeHtml(b)}</li>`).join('') + '</ul></div>';
+  }
+
+  if (paras.length) {
+    html += '<div class="report-card"><h4>Details</h4>' + paras.map(p => `<p>${_escapeHtml(p)}</p>`).join('') + '</div>';
+  }
+  return html;
 }
 
 function scrollToTop(id) {
@@ -1299,6 +1349,15 @@ function escHtml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function copyCmd(btn) {
+  const cmd = btn && btn.getAttribute('data-cmd');
+  if (!cmd) return;
+  navigator.clipboard.writeText(cmd).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
+}
+
 function renderChat(runningText = '') {
   const out = document.getElementById('chatOut');
   if (!out) return;
@@ -1341,9 +1400,14 @@ const MODEL_DEFAULTS = {
   anthropic: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', none: '',
 };
 
+function normalizeModelValue(value) {
+  const v = (value || '').trim();
+  return v === '__auto__' ? '' : v;
+}
+
 async function updateModelList(section, forceFetch = false) {
   const provider = document.getElementById(section + 'Provider').value;
-  const list = document.getElementById(section + 'ModelList');
+  const list = document.getElementById(section + 'Model');
   const modelInput = document.getElementById(section + 'Model');
   const keyInput = document.getElementById(section + 'ApiKey');
   const baseInput = document.getElementById(section + 'BaseUrl');
@@ -1365,13 +1429,20 @@ async function updateModelList(section, forceFetch = false) {
     }
   }
 
-  list.innerHTML = options.map(m => `<option value="${m}">`).join('');
+  const autoLabel = provider === 'ollama' ? 'Auto (recommended local model)' : 'Auto (recommended by provider)';
+  const previous = modelInput ? modelInput.value : '__auto__';
+  let html = `<option value="__auto__">${autoLabel}</option>`;
+  html += options.map(m => `<option value="${_escapeHtml(m)}">${_escapeHtml(m)}</option>`).join('');
+  list.innerHTML = html;
+
   // Auto-set a sensible model only when field is empty or still generic.
   if (modelInput) {
-    const current = modelInput.value.trim();
-    const isGeneric = !current || Object.values(MODEL_DEFAULTS).includes(current);
-    if (isGeneric) {
-      modelInput.value = options[0] || MODEL_DEFAULTS[provider] || '';
+    const current = (previous || '').trim();
+    const isKnown = current && (current === '__auto__' || options.includes(current));
+    if (isKnown) {
+      modelInput.value = current;
+    } else {
+      modelInput.value = '__auto__';
     }
   }
 }
@@ -1475,17 +1546,20 @@ async function ollamaFreeRAM(section) {
 function ollamaErrHtml(errMsg) {
   const m = errMsg && errMsg.match(/Run:\s*(ollama\s+\S+(?:\s+\S+)?)/i);
   if (!m) return null;
-  const cmd = m[1];
-  return `<span style="color:var(--danger)">${errMsg.replace(cmd,'').replace('Run:','').trim()}</span>
+  const rawCmd = m[1];
+  const cmd = escHtml(rawCmd);
+  const cmdAttr = rawCmd.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const message = escHtml(errMsg.replace(m[1],'').replace('Run:','').trim());
+  return `<span style="color:var(--danger)">${message}</span>
 <div style="display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;">
   <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);flex:1">Run: ${cmd}</code>
-  <button onclick="navigator.clipboard.writeText('${cmd}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})" style="background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);border-radius:5px;padding:3px 10px;font-size:11px;cursor:pointer;white-space:nowrap">Copy</button>
+  <button data-cmd="${cmdAttr}" onclick="copyCmd(this)" style="background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);border-radius:5px;padding:3px 10px;font-size:11px;cursor:pointer;white-space:nowrap">Copy</button>
 </div>`;
 }
 
 async function verifyChatKey() {
   const provider = document.getElementById('chatProvider').value;
-  const model = document.getElementById('chatModel').value.trim() || 'llama3';
+  const model = normalizeModelValue(document.getElementById('chatModel').value.trim()) || 'llama3';
   const apiKey = document.getElementById('chatApiKey').value.trim();
   const baseUrl = document.getElementById('chatBaseUrl').value.trim();
   const statusDiv = document.getElementById('chatKeyStatus');
@@ -1529,7 +1603,7 @@ async function verifyChatKey() {
 
 async function verifyAnalysisKey() {
   const provider = document.getElementById('analysisProvider').value;
-  const model = document.getElementById('analysisModel').value.trim() || 'llama3';
+  const model = normalizeModelValue(document.getElementById('analysisModel').value.trim()) || 'llama3';
   const apiKey = document.getElementById('analysisApiKey').value.trim();
   const statusDiv = document.getElementById('analysisKeyStatus');
   
@@ -1602,7 +1676,7 @@ async function chatAsk() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         provider: document.getElementById('chatProvider').value,
-        model: document.getElementById('chatModel').value.trim() || 'llama3',
+        model: normalizeModelValue(document.getElementById('chatModel').value.trim()) || 'llama3',
         api_key: document.getElementById('chatApiKey').value.trim(),
         base_url: document.getElementById('chatBaseUrl').value.trim(),
         history: chatHistory.slice(0, -1),
@@ -1672,6 +1746,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const prompt = document.getElementById('chatPrompt');
   const chatApiKey = document.getElementById('chatApiKey');
   const chatBaseUrl = document.getElementById('chatBaseUrl');
+  const analysisApiKey = document.getElementById('analysisApiKey');
   if (prompt) {
     prompt.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -1687,6 +1762,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (chatBaseUrl) {
     chatBaseUrl.addEventListener('change', () => updateModelList('chat', true));
     chatBaseUrl.addEventListener('blur', () => updateModelList('chat', true));
+  }
+  if (analysisApiKey) {
+    analysisApiKey.addEventListener('change', () => updateModelList('analysis', true));
+    analysisApiKey.addEventListener('blur', () => updateModelList('analysis', true));
   }
 });
 
@@ -1885,7 +1964,15 @@ async function backupWithDateRange() {
   if (d.ok) {
     msg.style.color = 'var(--success)';
     if (d.download_url) {
-      msg.innerHTML = '✓ ' + d.message + ' <a href="' + d.download_url + '" style="color:var(--accent);text-decoration:underline">Download here</a>';
+      msg.textContent = '✓ ' + (d.message || 'Backup ready.');
+      if (typeof d.download_url === 'string' && d.download_url.startsWith('/')) {
+        const a = document.createElement('a');
+        a.href = d.download_url;
+        a.style.color = 'var(--accent)';
+        a.style.textDecoration = 'underline';
+        a.textContent = ' Download here';
+        msg.appendChild(a);
+      }
     } else {
       msg.textContent = '✓ ' + d.message;
     }
