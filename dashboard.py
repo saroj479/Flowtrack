@@ -16,6 +16,7 @@ import platform
 import re
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -160,6 +161,36 @@ def sync_json_to_cloud(provider: str, target: str, api_key: str) -> dict:
     return {"ok": False, "error": "Unsupported provider. Use gist or webhook."}
 
 
+def _ensure_ollama_running() -> bool:
+    """Start `ollama serve` on demand if not already running.
+    Returns True once the API is reachable, False if ollama is not installed."""
+    # Fast path — already up?
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2):
+            return True
+    except Exception:
+        pass
+    # Try to start it as a background process.
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except FileNotFoundError:
+        return False  # ollama binary not on PATH
+    # Wait up to 10 seconds for the server to become ready.
+    for _ in range(20):
+        time.sleep(0.5)
+        try:
+            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: str = "") -> tuple[str | None, str | None]:
   provider = provider.lower().strip()
   try:
@@ -172,6 +203,10 @@ def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: st
         ollama_url = ollama_url + "/api/generate"
       elif "/api/" not in ollama_url:
         ollama_url = ollama_url + "/api/generate"
+
+      # Start ollama on-demand if not running.
+      if not _ensure_ollama_running():
+        return None, "Ollama is not installed or failed to start. Install from https://ollama.com then run: ollama pull llama3"
 
       # If requested model is missing, fall back to an installed Ollama model.
       try:
@@ -191,7 +226,8 @@ def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: st
       except Exception:
         pass
 
-      payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+      # keep_alive=5m: model stays loaded for 5 min of inactivity, then auto-unloads.
+      payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "keep_alive": "5m"}).encode("utf-8")
       req = urllib.request.Request(
         ollama_url,
         data=payload,
@@ -787,7 +823,7 @@ tr:hover td{background:rgba(255,255,255,.03)}
     </div>
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <label style="font-size:11px;color:var(--muted);font-weight:700">Provider for analysis:</label>
-      <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders()" style="padding:7px 10px">
+      <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders();refreshOllamaBar('analysis')" style="padding:7px 10px">
         <option value="ollama" selected>Ollama (default)</option>
         <option value="none">No AI (text only)</option>
         <option value="openai">OpenAI</option>
@@ -797,6 +833,11 @@ tr:hover td{background:rgba(255,255,255,.03)}
       <input id="analysisModel" placeholder="Model name (e.g., llama3, gpt-4o-mini, claude-3-5-sonnet)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="llama3">
       <input id="analysisApiKey" type="password" placeholder="Not needed for Ollama (required for cloud providers)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <button class="btn btn-yellow" onclick="verifyAnalysisKey()">✓ Verify Key</button>
+    </div>
+    <div id="ollamaBarAnalysis" style="display:none;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span id="ollamaStatusAnalysis" style="font-size:11px;color:var(--muted)">Checking Ollama…</span>
+      <button class="btn btn-muted" style="font-size:11px;padding:4px 10px" onclick="ollamaStart('analysis')">▶ Start</button>
+      <button class="btn btn-warn" style="font-size:11px;padding:4px 10px" onclick="ollamaFreeRAM('analysis')">⬡ Free RAM</button>
     </div>
     <div id="analysisKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
     <div class="analysis-output ao-done" id="analysisOut">No analysis run yet. Click "Run Analysis" above.</div>
@@ -808,7 +849,7 @@ tr:hover td{background:rgba(255,255,255,.03)}
       <span style="font-size:11px;color:var(--muted)">Provider and key are used in-memory only</span>
     </div>
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders()" style="padding:7px 10px">
+      <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders();refreshOllamaBar('chat')" style="padding:7px 10px">
         <option value="ollama">Ollama (local, no key)</option>
         <option value="openai">OpenAI (requires API key)</option>
         <option value="anthropic">Anthropic (requires API key)</option>
@@ -825,6 +866,11 @@ tr:hover td{background:rgba(255,255,255,.03)}
         <button class="btn btn-muted" onclick="fillChatTemplate()">Use suggestion template</button>
         <button class="btn btn-yellow" onclick="verifyChatKey()" style="margin-left:auto">✓ Test Key</button>
       </div>
+    </div>
+    <div id="ollamaBarChat" style="display:none;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span id="ollamaStatusChat" style="font-size:11px;color:var(--muted)">Checking Ollama…</span>
+      <button class="btn btn-muted" style="font-size:11px;padding:4px 10px" onclick="ollamaStart('chat')">▶ Start</button>
+      <button class="btn btn-warn" style="font-size:11px;padding:4px 10px" onclick="ollamaFreeRAM('chat')">⬡ Free RAM</button>
     </div>
     <div id="chatKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
     <div class="analysis-output ao-done" id="chatOut">No chat yet.</div>
@@ -1147,6 +1193,67 @@ function updateAnalysisPlaceholders() {
     : ('API key required for ' + provider);
 }
 
+// ── Ollama on-demand controls ─────────────────────────────────────────────────
+function _ollamaIds(section) {
+  return {
+    bar: document.getElementById('ollamaBar' + section.charAt(0).toUpperCase() + section.slice(1)),
+    status: document.getElementById('ollamaStatus' + section.charAt(0).toUpperCase() + section.slice(1)),
+    provider: document.getElementById(section + 'Provider'),
+    model: document.getElementById(section + 'Model'),
+  };
+}
+
+async function refreshOllamaBar(section) {
+  const {bar, status, provider} = _ollamaIds(section);
+  if (!bar) return;
+  if (!provider || provider.value !== 'ollama') { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Checking Ollama…';
+  const d = await api('/api/ollama');
+  if (!d) { status.textContent = 'Could not reach dashboard backend.'; return; }
+  if (!d.running) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '● Not running — click ▶ Start or just send a message (auto-starts).';
+  } else {
+    const loaded = d.loaded && d.loaded.length ? d.loaded.join(', ') : 'none loaded';
+    const models = d.models && d.models.length ? d.models.join(', ') : 'none installed';
+    status.style.color = 'var(--success)';
+    status.textContent = `● Running · In RAM: ${loaded} · Installed: ${models}`;
+  }
+}
+
+async function ollamaStart(section) {
+  const {status} = _ollamaIds(section);
+  status.style.color = 'var(--warn)';
+  status.textContent = 'Starting Ollama…';
+  const d = await api('/api/ollama', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'start'}),
+  });
+  if (d && d.ok) { refreshOllamaBar(section); }
+  else { status.style.color = 'var(--danger)'; status.textContent = (d && d.error) || 'Failed to start.'; }
+}
+
+async function ollamaFreeRAM(section) {
+  const {status, model} = _ollamaIds(section);
+  const modelName = (model && model.value.trim()) || 'llama3';
+  status.style.color = 'var(--warn)';
+  status.textContent = `Unloading ${modelName} from RAM…`;
+  const d = await api('/api/ollama', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'unload', model: modelName}),
+  });
+  if (d && d.ok) {
+    status.style.color = 'var(--muted)';
+    status.textContent = `✓ ${d.message}`;
+    setTimeout(() => refreshOllamaBar(section), 1500);
+  } else {
+    status.style.color = 'var(--danger)';
+    status.textContent = (d && d.error) || 'Unload failed.';
+  }
+}
+
 function ollamaErrHtml(errMsg) {
   const m = errMsg && errMsg.match(/Run:\s*(ollama\s+\S+(?:\s+\S+)?)/i);
   if (!m) return null;
@@ -1197,16 +1304,8 @@ async function verifyChatKey() {
       ? 'Ollama connection verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK')
       : ('API key verified! Response: ' + (d.reply ? d.reply.substring(0, 100) : 'OK'));
   } else {
-    const errMsg = d ? d.error : 'No response';
-    const html = ollamaErrHtml(errMsg);
-    if (html) {
-      statusDiv.style.color = '';
-      statusDiv.innerHTML = html;
-    } else {
-      statusDiv.style.color = 'var(--danger)';
-      statusDiv.textContent = 'Verification failed: ' + errMsg;
-    }
-    statusDiv.style.display = 'block';
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
   }
 }
 
@@ -1253,16 +1352,8 @@ async function verifyAnalysisKey() {
       ? 'Ollama connection verified for analysis!'
       : 'API key verified for analysis!';
   } else {
-    const errMsg = d ? d.error : 'No response';
-    const html = ollamaErrHtml(errMsg);
-    if (html) {
-      statusDiv.style.color = '';
-      statusDiv.innerHTML = html;
-    } else {
-      statusDiv.style.color = 'var(--danger)';
-      statusDiv.textContent = 'Verification failed: ' + errMsg;
-    }
-    statusDiv.style.display = 'block';
+    statusDiv.style.color = 'var(--red)';
+    statusDiv.textContent = 'Verification failed: ' + (d ? d.error : 'No response') + '. Check provider, model, and network.';
   }
 }
 
@@ -1294,14 +1385,7 @@ async function chatAsk() {
     out.textContent = d.reply;
   } else {
     out.className = 'analysis-output ao-error';
-    const errMsg = d.error || 'Chat failed.';
-    const html = ollamaErrHtml(errMsg);
-    if (html) {
-      out.style.fontFamily = 'inherit';
-      out.innerHTML = html;
-    } else {
-      out.textContent = errMsg;
-    }
+    out.textContent = d.error || 'Chat failed.';
   }
 }
 
@@ -1569,6 +1653,8 @@ updateUploadUI();
 updateChatPlaceholders();
 updateAnalysisPlaceholders();
 checkAutoStart();
+refreshOllamaBar('chat');
+refreshOllamaBar('analysis');
 
 // Load latest saved report on first open
 api('/api/analysis').then(d => {
@@ -1629,6 +1715,23 @@ class Handler(BaseHTTPRequestHandler):
             stor = storage_stats()
             self._json({**svc, **stor})
 
+        elif path == "/api/ollama":
+            # Report Ollama state: running, installed models, currently loaded models.
+            try:
+                with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
+                    tags = json.loads(r.read())
+                models = [m.get("name") for m in tags.get("models", []) if m.get("name")]
+                loaded: list[str] = []
+                try:
+                    with urllib.request.urlopen("http://localhost:11434/api/ps", timeout=3) as r:
+                        ps = json.loads(r.read())
+                    loaded = [m.get("name", "") for m in ps.get("models", []) if m.get("name")]
+                except Exception:
+                    pass
+                self._json({"running": True, "models": models, "loaded": loaded})
+            except Exception:
+                self._json({"running": False, "models": [], "loaded": []})
+
         elif path == "/api/autostart":
             if platform.system() != "Linux":
                 self._json({"enabled": False, "supported": False})
@@ -1680,7 +1783,30 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         body = self._body()
 
-        if path == "/api/service":
+        if path == "/api/ollama":
+            action = str(body.get("action", ""))
+            model = str(body.get("model", "llama3")).strip()
+            if action == "start":
+                ok = _ensure_ollama_running()
+                self._json({"ok": ok, "message": "Ollama started." if ok else "Failed to start Ollama. Is it installed?"})
+            elif action == "unload":
+                # Sending keep_alive=0 tells Ollama to immediately evict the model from RAM/VRAM.
+                try:
+                    payload = json.dumps({"model": model, "keep_alive": 0}).encode()
+                    req = urllib.request.Request(
+                        "http://localhost:11434/api/generate",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(req, timeout=10).close()
+                    self._json({"ok": True, "message": f"'{model}' unloaded — RAM freed."})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)})
+            else:
+                self._json({"ok": False, "error": "Unknown action. Use start or unload."}, code=400)
+
+        elif path == "/api/service":
             action = body.get("action", "")
             # Whitelist only safe systemctl actions
             if action in ("start", "stop", "restart"):

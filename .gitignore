@@ -18,6 +18,18 @@ reports/
 logs/
 screenshots/
 
+# AI model files — DO NOT commit these (4+ GB each).
+# Download locally with: ollama pull <model>
+# Or use a cloud provider (OpenAI / Anthropic / Gemini) with an API key.
+*.gguf
+*.bin
+*.safetensors
+*.ggml
+*.pt
+*.pth
+models/
+.ollama/
+
 # systemd service generated at install time (contains hard-coded $HOME paths)
 # The template is focusaudit.service — that one IS tracked
 *.service.local
