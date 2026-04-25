@@ -234,7 +234,7 @@ def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: st
         headers={"Content-Type": "application/json"},
         method="POST",
       )
-      with urllib.request.urlopen(req, timeout=120) as resp:
+      with urllib.request.urlopen(req, timeout=600) as resp:
         data = json.loads(resp.read())
         text = data.get("response", "").strip()
         return (text if text else None, None if text else "Ollama returned an empty response.")
@@ -823,14 +823,15 @@ tr:hover td{background:rgba(255,255,255,.03)}
     </div>
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <label style="font-size:11px;color:var(--muted);font-weight:700">Provider for analysis:</label>
-      <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders();refreshOllamaBar('analysis')" style="padding:7px 10px">
+      <select id="analysisProvider" class="btn btn-muted" onchange="updateAnalysisPlaceholders();refreshOllamaBar('analysis');updateModelList('analysis')" style="padding:7px 10px">
         <option value="ollama" selected>Ollama (default)</option>
         <option value="none">No AI (text only)</option>
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
         <option value="gemini">Gemini</option>
       </select>
-      <input id="analysisModel" placeholder="Model name (e.g., llama3, gpt-4o-mini, claude-3-5-sonnet)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="llama3">
+      <input id="analysisModel" list="analysisModelList" placeholder="Model name" style="flex:1;min-width:200px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px" value="llama3">
+      <datalist id="analysisModelList"></datalist>
       <input id="analysisApiKey" type="password" placeholder="Not needed for Ollama (required for cloud providers)" style="flex:1;min-width:240px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <button class="btn btn-yellow" onclick="verifyAnalysisKey()">✓ Verify Key</button>
     </div>
@@ -849,13 +850,14 @@ tr:hover td{background:rgba(255,255,255,.03)}
       <span style="font-size:11px;color:var(--muted)">Provider and key are used in-memory only</span>
     </div>
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders();refreshOllamaBar('chat')" style="padding:7px 10px">
+      <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders();refreshOllamaBar('chat');updateModelList('chat')" style="padding:7px 10px">
         <option value="ollama">Ollama (local, no key)</option>
         <option value="openai">OpenAI (requires API key)</option>
         <option value="anthropic">Anthropic (requires API key)</option>
         <option value="gemini">Gemini (requires API key)</option>
       </select>
-      <input id="chatModel" placeholder="Model, for example llama3 or gpt-4o-mini" value="llama3" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <input id="chatModel" list="chatModelList" placeholder="Model name" value="llama3" style="min-width:200px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
+      <datalist id="chatModelList"></datalist>
       <input id="chatApiKey" type="password" placeholder="API key (not needed for Ollama)" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <input id="chatBaseUrl" placeholder="Custom base URL (optional)" style="min-width:220px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
     </div>
@@ -1141,56 +1143,62 @@ function fillChatTemplate() {
     'Analyze my recent Flowtrack behavior and give me: 1) top 3 focus problems with numbers, 2) practical fixes for tomorrow, 3) one simple rule I should enforce.';
 }
 
+// ── Model presets per provider ───────────────────────────────────────────────
+const MODEL_PRESETS = {
+  ollama:    ['llama3', 'llama3.2', 'llama3.1', 'llama3.2:1b', 'gemma3', 'gemma2', 'mistral', 'phi4', 'phi3', 'deepseek-r1', 'qwen2.5', 'codellama', 'nomic-embed-text'],
+  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-mini', 'o3-mini'],
+  anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
+  gemini:    ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+};
+const MODEL_DEFAULTS = {
+  ollama: 'llama3', openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', none: '',
+};
+
+async function updateModelList(section) {
+  const provider = document.getElementById(section + 'Provider').value;
+  const list = document.getElementById(section + 'ModelList');
+  const modelInput = document.getElementById(section + 'Model');
+  if (!list) return;
+  const presets = MODEL_PRESETS[provider] || [];
+  let options = [...presets];
+  // Merge in actually-installed Ollama models so locally pulled ones appear too.
+  if (provider === 'ollama') {
+    const d = await api('/api/ollama');
+    if (d && d.models) {
+      d.models.forEach(m => { if (!options.includes(m)) options.unshift(m); });
+    }
+  }
+  list.innerHTML = options.map(m => `<option value="${m}">`).join('');
+  // Auto-set default when switching providers.
+  if (modelInput && MODEL_DEFAULTS[provider] !== undefined) {
+    modelInput.value = MODEL_DEFAULTS[provider];
+  }
+}
+
 function updateChatPlaceholders() {
   const provider = document.getElementById('chatProvider').value;
   const keyInput = document.getElementById('chatApiKey');
-  const modelInput = document.getElementById('chatModel');
-  
-  const placeholders = {
-    'ollama': { key: 'Not needed for Ollama - leave empty', model: 'llama3, mistral, etc' },
-    'openai': { key: 'Your OpenAI API key (sk-...)', model: 'gpt-4o-mini, gpt-4o, o1-mini' },
-    'anthropic': { key: 'Your Anthropic API key', model: 'claude-3-5-sonnet-20241022' },
-    'gemini': { key: 'Your Google Gemini API key', model: 'gemini-2.0-flash, gemini-1.5-pro' }
+  const keyPH = {
+    ollama: 'Not needed for Ollama — leave empty',
+    openai: 'sk-... (OpenAI API key)',
+    anthropic: 'sk-ant-... (Anthropic API key)',
+    gemini: 'AIza... (Google AI API key)',
   };
-  
-  const placeholderSet = placeholders[provider] || placeholders['ollama'];
-  keyInput.placeholder = placeholderSet.key;
-  modelInput.placeholder = placeholderSet.model;
-  
-  // Update model value if switching to ollama
-  if (provider === 'ollama' && modelInput.value !== 'llama3') {
-    modelInput.value = 'llama3';
-  } else if (provider === 'openai' && modelInput.value === 'llama3') {
-    modelInput.value = 'gpt-4o-mini';
-  } else if (provider === 'anthropic' && modelInput.value === 'llama3') {
-    modelInput.value = 'claude-3-5-sonnet-20241022';
-  } else if (provider === 'gemini' && modelInput.value === 'llama3') {
-    modelInput.value = 'gemini-2.0-flash';
-  }
+  keyInput.placeholder = keyPH[provider] || 'API key';
 }
 
 function updateAnalysisPlaceholders() {
   const provider = document.getElementById('analysisProvider').value;
-  const modelInput = document.getElementById('analysisModel');
   const keyInput = document.getElementById('analysisApiKey');
-  
-  const modelDefaults = {
-    'none': 'text-only',
-    'ollama': 'llama3',
-    'openai': 'gpt-4o-mini',
-    'anthropic': 'claude-3-5-sonnet-20241022',
-    'gemini': 'gemini-2.0-flash'
+  const keyPH = {
+    ollama: 'Not needed for Ollama — leave empty',
+    none:   'No AI selected',
+    openai: 'sk-... (OpenAI API key)',
+    anthropic: 'sk-ant-... (Anthropic API key)',
+    gemini: 'AIza... (Google AI API key)',
   };
-  
-  if (provider in modelDefaults && (modelInput.value === '' || modelInput.value === 'gpt-4o-mini') && provider !== 'openai') {
-    modelInput.value = modelDefaults[provider];
-  } else if (provider === 'openai' && modelInput.value !== 'gpt-4o-mini' && modelInput.value !== 'text-only') {
-    modelInput.value = 'gpt-4o-mini';
-  }
-
-  keyInput.placeholder = provider === 'ollama'
-    ? 'Not needed for Ollama - leave empty'
-    : ('API key required for ' + provider);
+  keyInput.placeholder = keyPH[provider] || 'API key';
 }
 
 // ── Ollama on-demand controls ─────────────────────────────────────────────────
@@ -1361,23 +1369,47 @@ async function chatAsk() {
   const prompt = document.getElementById('chatPrompt').value.trim();
   if (!prompt) return;
   const out = document.getElementById('chatOut');
+  const sendBtn = document.querySelector('button[onclick="chatAsk()"]');
   out.className = 'analysis-output ao-running';
-  out.textContent = 'Thinking...';
-  const payload = {
-    provider: document.getElementById('chatProvider').value,
-    model: document.getElementById('chatModel').value.trim() || 'llama3',
-    api_key: document.getElementById('chatApiKey').value.trim(),
-    base_url: document.getElementById('chatBaseUrl').value.trim(),
-    prompt,
-  };
-  const d = await api('/api/chat', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload),
-  });
+  out.textContent = 'Thinking… 0s';
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '…'; }
+
+  // Elapsed-time counter so user knows it's working (Ollama on CPU can be slow).
+  const t0 = Date.now();
+  const ticker = setInterval(() => {
+    if (out.className.includes('ao-running'))
+      out.textContent = `Thinking… ${Math.round((Date.now()-t0)/1000)}s`;
+  }, 1000);
+
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 660000); // 11 min hard cap
+
+  let d = null;
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: document.getElementById('chatProvider').value,
+        model: document.getElementById('chatModel').value.trim() || 'llama3',
+        api_key: document.getElementById('chatApiKey').value.trim(),
+        base_url: document.getElementById('chatBaseUrl').value.trim(),
+        prompt,
+      }),
+      signal: controller.signal,
+    });
+    d = await resp.json();
+  } catch(e) {
+    d = null;
+  } finally {
+    clearInterval(ticker);
+    clearTimeout(abort);
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
+  }
+
   if (!d) {
     out.className = 'analysis-output ao-error';
-    out.textContent = 'No response from backend.';
+    out.textContent = 'Request timed out or no response from backend.\nFor Ollama on CPU, try a shorter prompt or switch to a cloud provider.';
     return;
   }
   if (d.ok) {
@@ -1385,7 +1417,10 @@ async function chatAsk() {
     out.textContent = d.reply;
   } else {
     out.className = 'analysis-output ao-error';
-    out.textContent = d.error || 'Chat failed.';
+    const errMsg = d.error || 'Chat failed.';
+    const html = ollamaErrHtml(errMsg);
+    if (html) { out.style.fontFamily = 'inherit'; out.innerHTML = html; }
+    else { out.textContent = errMsg; }
   }
 }
 
@@ -1655,6 +1690,8 @@ updateAnalysisPlaceholders();
 checkAutoStart();
 refreshOllamaBar('chat');
 refreshOllamaBar('analysis');
+updateModelList('chat');
+updateModelList('analysis');
 
 // Load latest saved report on first open
 api('/api/analysis').then(d => {
