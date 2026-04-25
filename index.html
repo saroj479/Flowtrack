@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flowtrack | Local-first Focus Tracking</title>
   <meta name="description" content="Flowtrack is a local-first focus tracker with an AI dashboard, safe demo mode, and optional Ollama or API-key providers.">
+  <meta property="og:title" content="Flowtrack | Local-first Focus Tracking">
+  <meta property="og:description" content="Open-source focus tracking with a safe public demo, readable AI reports, and local-first privacy.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/social-preview.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Flowtrack | Local-first Focus Tracking">
+  <meta name="twitter:description" content="Open-source focus tracking with safe demo data and local-first privacy.">
+  <meta name="twitter:image" content="/social-preview.svg">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
@@ -21,6 +30,7 @@
         <a href="#features">Features</a>
         <a href="#demo">Try Demo</a>
         <a href="#local">Run Locally</a>
+        <a href="demo.html">Full Demo</a>
         <a class="github-link" href="https://github.com/saroj479/Flowtrack" target="_blank" rel="noreferrer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.02c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.34-1.75-1.34-1.75-1.09-.75.08-.74.08-.74 1.2.09 1.84 1.24 1.84 1.24 1.08 1.84 2.82 1.31 3.51 1 .11-.78.42-1.31.76-1.61-2.67-.31-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.23-.13-.3-.54-1.53.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.25 2.88.12 3.18.77.85 1.24 1.92 1.24 3.23 0 4.61-2.81 5.61-5.49 5.92.43.37.82 1.11.82 2.24v3.32c0 .32.22.7.83.58A12 12 0 0 0 12 .5Z"></path></svg>
           <span>GitHub</span>
@@ -31,17 +41,19 @@
     <main id="home">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Local-first productivity tracking</p>
-          <h1>See where your focus goes, then fix it with AI that runs your way.</h1>
-          <p class="lede">Flowtrack watches active windows on your own laptop, scores your focus, flags distraction patterns, and gives you a plain-English action plan. The public site uses safe demo data only. Real tracking stays local.</p>
+          <p class="eyebrow">Open-source, local-first productivity tracking</p>
+          <h1>See where your focus goes, then improve it with AI on your own terms.</h1>
+          <p class="lede">Flowtrack is an open-source local app that tracks work patterns on your machine, scores focus, flags distraction loops, and turns raw activity into readable coaching. This public site is only the landing layer. The real app stays in the main branch and runs locally.</p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="#demo">Try Demo</a>
             <a class="btn btn-secondary" href="#local">Run Locally</a>
+            <a class="btn btn-secondary" href="demo.html">Open Full Demo</a>
           </div>
           <ul class="hero-points">
             <li>No account required for the demo</li>
-            <li>Ollama local or cloud providers with API key</li>
+            <li>Use Ollama local or cloud providers with API key</li>
             <li>Real data never exposed on this public site</li>
+            <li>Main branch stays the real open-source app</li>
           </ul>
         </div>
         <div class="hero-visual" aria-label="Mock Flowtrack dashboard preview">
@@ -100,7 +112,7 @@
       <section class="trust-band">
         <div>Private by default</div>
         <div>Demo uses mock data only</div>
-        <div>Ollama or API-key providers</div>
+        <div>Any Ollama model you install can be used</div>
         <div>Run locally on your own machine</div>
       </section>
 
@@ -124,7 +136,7 @@
           </article>
           <article class="feature-card">
             <h3>Choose your AI path</h3>
-            <p>Use Ollama locally with no key, or plug in OpenAI, Anthropic, Gemini, Groq, xAI, OpenRouter, Together, and more.</p>
+            <p>Use Ollama locally with no key, or plug in OpenAI, Anthropic, Gemini, Groq, xAI, OpenRouter, Together, and more. If you downloaded a different Ollama model, you can use that too.</p>
           </article>
         </div>
       </section>
@@ -149,9 +161,11 @@
               <ul>
                 <li>Choose <strong>Auto model</strong> by default</li>
                 <li>Use <strong>Ollama local</strong> or <strong>cloud API key</strong></li>
+                <li>Pick any model you already pulled into Ollama</li>
                 <li>Refresh provider models if your account exposes them</li>
               </ul>
             </div>
+            <a class="btn btn-primary demo-sidebar-btn" href="demo.html">Open Full Demo</a>
           </aside>
           <div class="demo-panel">
             <div class="demo-header">
@@ -200,8 +214,8 @@
             <ol>
               <li>Install Flowtrack locally</li>
               <li>Install Ollama</li>
-              <li>Run <code>ollama pull llama3</code></li>
-              <li>Open the dashboard and keep model on <strong>Auto</strong></li>
+              <li>Run <code>ollama pull llama3</code> or pull any other compatible model you prefer</li>
+              <li>Open the dashboard and keep model on <strong>Auto</strong> or choose your installed model</li>
             </ol>
           </article>
           <article class="path-card">
@@ -218,7 +232,7 @@
           <article class="path-card">
             <div class="path-tag">Install</div>
             <h3>Developer or power user</h3>
-            <p>Clone the repo and use the current local-first stack directly.</p>
+            <p>Clone the repo and use the main branch directly. This landing branch is only for the public website.</p>
             <div class="code-stack">
               <code>git clone https://github.com/saroj479/Flowtrack.git</code>
               <code>cd Flowtrack</code>
@@ -231,14 +245,14 @@
       <section class="section-block privacy-section">
         <div class="privacy-card">
           <div>
-            <p class="eyebrow">Why the public demo is separate</p>
-            <h2>Real tracking stays local until you choose to run it on your own machine.</h2>
-            <p>That is the correct product boundary right now. The demo helps non-technical users understand the idea without exposing screenshots, logs, window titles, or system permissions to a hosted website.</p>
+            <p class="eyebrow">Open-source first</p>
+            <h2>The website explains the project. The main branch remains the real product.</h2>
+            <p>This branch exists so people can understand Flowtrack quickly, try a safe demo, and decide whether to run it locally. The open-source app itself is not replaced or diluted by this site.</p>
           </div>
           <div class="privacy-points">
-            <div><strong>Public site:</strong> landing page + safe demo only</div>
-            <div><strong>Local app:</strong> real tracking, local screenshots, real analysis</div>
-            <div><strong>Later:</strong> optional Google login only when you add a real cloud product</div>
+            <div><strong>Public site:</strong> product explanation + safe mock demo</div>
+            <div><strong>Main branch:</strong> local tracker, dashboard, analysis, and OSS codebase</div>
+            <div><strong>Later:</strong> private commercial layers can be built separately on top of the open-source foundation</div>
           </div>
         </div>
       </section>

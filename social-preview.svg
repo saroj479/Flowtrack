@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#171717"/>
+      <stop offset="100%" stop-color="#101010"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="160" cy="110" r="180" fill="#f97316" opacity="0.12"/>
+  <circle cx="980" cy="140" r="150" fill="#60a5fa" opacity="0.10"/>
+  <rect x="70" y="70" width="1060" height="490" rx="36" fill="#1d1d1d" stroke="#2f2f2f"/>
+  <rect x="110" y="120" width="88" height="88" rx="22" fill="#f97316"/>
+  <path d="M163 130 132 171h19l-7 31 31-41h-19l7-31Z" fill="#171717"/>
+  <text x="230" y="175" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="64" font-weight="700">Flowtrack</text>
+  <text x="112" y="270" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="40" font-weight="700">Local-first focus tracking with readable AI coaching</text>
+  <text x="112" y="330" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="28">Open-source. Safe public demo. Real tracking stays local.</text>
+  <rect x="112" y="392" width="190" height="96" rx="20" fill="#262626" stroke="#3a3a3a"/>
+  <rect x="326" y="392" width="190" height="96" rx="20" fill="#262626" stroke="#3a3a3a"/>
+  <rect x="540" y="392" width="190" height="96" rx="20" fill="#262626" stroke="#3a3a3a"/>
+  <text x="136" y="425" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="20">Focus score</text>
+  <text x="136" y="468" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="42" font-weight="700">74</text>
+  <text x="350" y="425" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="20">Switches/hr</text>
+  <text x="350" y="468" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="42" font-weight="700">18</text>
+  <text x="564" y="425" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="20">Deep work</text>
+  <text x="564" y="468" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="42" font-weight="700">2.4h</text>
+  <rect x="760" y="392" width="280" height="96" rx="20" fill="#2a1f18" stroke="#6f3a12"/>
+  <text x="786" y="425" fill="#f4c39e" font-family="Arial, sans-serif" font-size="20">Top distraction</text>
+  <text x="786" y="468" fill="#f5f5f4" font-family="Arial, sans-serif" font-size="42" font-weight="700">YouTube</text>
+</svg>

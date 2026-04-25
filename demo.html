@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowtrack Demo | Mock Dashboard</title>
+  <meta name="description" content="Full-screen safe mock dashboard for Flowtrack. No real device tracking, screenshots, or private logs.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="demo-page">
+  <div class="demo-app-shell">
+    <aside class="demo-app-sidebar">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">⚡</span>
+        <span class="brand-text">Flowtrack Demo</span>
+      </a>
+      <p class="sidebar-copy">This is a full-screen walkthrough using synthetic data only. The real tracker stays local in the main branch.</p>
+      <div class="persona-list" role="tablist" aria-label="Demo personas">
+        <button class="persona is-active" data-persona="builder">Indie builder</button>
+        <button class="persona" data-persona="student">Student</button>
+        <button class="persona" data-persona="designer">Designer</button>
+      </div>
+      <div class="provider-box">
+        <h3>How real setup works</h3>
+        <ul>
+          <li>Use <strong>Auto model</strong> first</li>
+          <li>Pick <strong>Ollama</strong> or a cloud provider</li>
+          <li>If you pulled another Ollama model, select that one</li>
+          <li>Keep real tracking local-only</li>
+        </ul>
+      </div>
+      <div class="sidebar-actions">
+        <a class="btn btn-primary" href="index.html#local">Run Locally</a>
+        <a class="btn btn-secondary" href="https://github.com/saroj479/Flowtrack" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </aside>
+
+    <main class="demo-app-main">
+      <header class="demo-app-header">
+        <div>
+          <p class="eyebrow demo-label">Mock dashboard</p>
+          <h1 id="demoTitle">Indie builder on a deep-work day</h1>
+        </div>
+        <div class="demo-app-badge">Synthetic preview only</div>
+      </header>
+
+      <section class="demo-app-metrics" id="demoMetrics"></section>
+
+      <section class="demo-app-grid">
+        <article class="demo-panel-card">
+          <div class="demo-panel-head">
+            <h3>Readable AI report</h3>
+            <span class="report-chip">Auto model</span>
+          </div>
+          <div class="report-metrics">
+            <span class="report-chip"><strong>Focus 74</strong></span>
+            <span class="report-chip"><strong>242 switches</strong></span>
+            <span class="report-chip"><strong>3 rabbit holes</strong></span>
+          </div>
+          <div class="report-card">
+            <h4>Summary</h4>
+            <p id="demoSummary">Your work quality is strong when you stay inside one execution block, but browser-driven drift starts to win after lunch.</p>
+          </div>
+          <div class="report-card">
+            <h4>Key findings</h4>
+            <ul id="demoFindings"></ul>
+          </div>
+          <div class="report-card">
+            <h4>Tomorrow</h4>
+            <p id="demoPlan"></p>
+          </div>
+        </article>
+
+        <article class="demo-panel-card">
+          <div class="demo-panel-head">
+            <h3>AI chat panel</h3>
+            <span class="report-chip">Scoped to your behavior</span>
+          </div>
+          <div class="demo-chat-head compact-head">
+            <div class="quick-prompts">
+              <button class="mini-btn" data-prompt="biggest">Biggest problem</button>
+              <button class="mini-btn" data-prompt="tomorrow">Tomorrow plan</button>
+              <button class="mini-btn" data-prompt="rule">One simple rule</button>
+            </div>
+          </div>
+          <div class="demo-chat-thread" id="demoChat"></div>
+          <div class="fake-composer">
+            <select>
+              <option>Ollama local</option>
+              <option>OpenAI</option>
+              <option>Anthropic</option>
+              <option>Gemini</option>
+              <option>Groq</option>
+            </select>
+            <select>
+              <option>Auto model</option>
+              <option>llama3</option>
+              <option>gemma3</option>
+              <option>mistral</option>
+            </select>
+            <input type="text" value="Ask about your focus pattern..." readonly>
+            <button class="btn btn-primary fake-send" type="button">Send</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="demo-app-bottom">
+        <article class="demo-panel-card slim-card">
+          <div class="demo-panel-head">
+            <h3>What the app tracks</h3>
+          </div>
+          <div class="stat-list">
+            <div><span>Focus score</span><strong id="statFocus">74</strong></div>
+            <div><span>App switches/hr</span><strong id="statSwitches">18</strong></div>
+            <div><span>Deep work</span><strong id="statDeep">2.4h</strong></div>
+            <div><span>Top distraction</span><strong id="statDistraction">YouTube</strong></div>
+          </div>
+        </article>
+        <article class="demo-panel-card slim-card">
+          <div class="demo-panel-head">
+            <h3>Important boundary</h3>
+          </div>
+          <p class="panel-copy">This public demo is only for discovery. If someone wants to actually use Flowtrack, they should run the main open-source branch locally. That is where the real tracking, dashboard, Ollama integration, and analysis live.</p>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

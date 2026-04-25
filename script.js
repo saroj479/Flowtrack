@@ -1,6 +1,7 @@
 const demoData = {
   builder: {
     title: 'Indie builder on a deep-work day',
+    summary: 'Your strongest work happens when you stay in one build loop. The biggest drag is research spillover after lunch.',
     metrics: [
       ['Focus score', '74'],
       ['App switches/hr', '18'],
@@ -30,6 +31,7 @@ const demoData = {
   },
   student: {
     title: 'Student balancing lectures and assignment work',
+    summary: 'Your main issue is mode mixing: review, study, and distraction all happen in the same session, which weakens deep work.',
     metrics: [
       ['Focus score', '61'],
       ['App switches/hr', '24'],
@@ -59,6 +61,7 @@ const demoData = {
   },
   designer: {
     title: 'Designer switching between tools and references',
+    summary: 'Your design workflow is solid once you stay inside production mode. The expensive part is reference drift in the browser.',
     metrics: [
       ['Focus score', '68'],
       ['App switches/hr', '21'],
@@ -100,10 +103,22 @@ function setPersona(name) {
   document.getElementById('demoMetrics').innerHTML = data.metrics
     .map(([label, value]) => `<div class="demo-metric"><span>${label}</span><strong>${value}</strong></div>`)
     .join('');
+  const summary = document.getElementById('demoSummary');
+  if (summary) summary.textContent = data.summary;
   document.getElementById('demoFindings').innerHTML = data.findings
     .map(item => `<li>${item}</li>`)
     .join('');
   document.getElementById('demoPlan').textContent = data.plan;
+  const stats = {
+    statFocus: data.metrics[0][1],
+    statSwitches: data.metrics[1][1],
+    statDeep: data.metrics[2][1],
+    statDistraction: data.metrics[3][1],
+  };
+  Object.entries(stats).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  });
   renderDemoChat('biggest');
 }
 
@@ -122,6 +137,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.querySelectorAll('.mini-btn').forEach(btn => {
     btn.addEventListener('click', () => renderDemoChat(btn.dataset.prompt));
+  });
+  document.querySelectorAll('.fake-send').forEach(btn => {
+    btn.addEventListener('click', () => renderDemoChat('tomorrow'));
   });
   setPersona(activePersona);
 });
