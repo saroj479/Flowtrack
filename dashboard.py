@@ -40,6 +40,11 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+XAI_URL = "https://api.x.ai/v1/chat/completions"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+LLAMAAPI_URL = "https://api.llama-api.com/chat/completions"
+TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 VISION_API_KEY = os.getenv("VISION_API_KEY", "")  # For Google Vision or Claude Vision
 
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -191,8 +196,131 @@ def _ensure_ollama_running() -> bool:
     return False
 
 
-def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: str = "") -> tuple[str | None, str | None]:
+def _compat_endpoint(provider: str, base_url: str = "") -> tuple[str, str]:
+    """Return (chat_completions_url, models_url) for OpenAI-compatible providers."""
+    defaults = {
+      "openai": OPENAI_URL,
+      "xai": XAI_URL,
+      "grok": XAI_URL,
+      "openrouter": OPENROUTER_URL,
+      "llamaapi": LLAMAAPI_URL,
+      "together": TOGETHER_URL,
+      "opensource": TOGETHER_URL,
+      "groq": GROQ_URL,
+    }
+    base = (base_url or defaults.get(provider, OPENAI_URL)).strip().rstrip("/")
+    if base.endswith("/chat/completions"):
+      return base, base[: -len("/chat/completions")] + "/models"
+    if base.endswith("/completions"):
+      return base, base[: -len("/completions")] + "/models"
+    if base.endswith("/v1"):
+      return base + "/chat/completions", base + "/models"
+    return base + "/chat/completions", base + "/models"
+
+
+def _extract_model_ids(data: dict) -> list[str]:
+    out: list[str] = []
+    raw = data.get("data")
+    if not isinstance(raw, list):
+      raw = data.get("models")
+    if isinstance(raw, list):
+      for item in raw:
+        if isinstance(item, str):
+          out.append(item)
+          continue
+        if not isinstance(item, dict):
+          continue
+        ident = item.get("id") or item.get("name") or item.get("model")
+        if isinstance(ident, str) and ident.strip():
+          out.append(ident.strip())
+    return sorted(set(out))
+
+
+def fetch_provider_models(provider: str, api_key: str, base_url: str = "") -> tuple[list[str], str | None]:
+    provider = provider.lower().strip()
+    try:
+      if provider == "ollama":
+        if not _ensure_ollama_running():
+          return [], "Ollama is not running."
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=8) as resp:
+          tags = json.loads(resp.read())
+        models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+        return sorted(set(models)), None
+
+      compat = {"openai", "xai", "grok", "openrouter", "llamaapi", "together", "opensource", "groq"}
+      if provider in compat:
+        if not api_key:
+          return [], f"API key is required for {provider}."
+        _, models_url = _compat_endpoint(provider, base_url)
+        req = urllib.request.Request(
+          models_url,
+          headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+          },
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+          data = json.loads(resp.read())
+        models = _extract_model_ids(data)
+        if not models:
+          return [], f"No models returned by {provider}."
+        return models, None
+
+      if provider == "anthropic":
+        if not api_key:
+          return [], "API key is required for anthropic."
+        models_url = (base_url or ANTHROPIC_URL).replace("/messages", "/models")
+        req = urllib.request.Request(
+          models_url,
+          headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Accept": "application/json",
+          },
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+          data = json.loads(resp.read())
+        models = _extract_model_ids(data)
+        return (models, None) if models else ([], "No models returned by anthropic.")
+
+      if provider == "gemini":
+        if not api_key:
+          return [], "API key is required for gemini."
+        url = "https://generativelanguage.googleapis.com/v1beta/models?key=" + api_key
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+          data = json.loads(resp.read())
+        models: list[str] = []
+        for item in data.get("models", []):
+          name = item.get("name", "")
+          if name.startswith("models/"):
+            name = name.split("/", 1)[1]
+          if name:
+            models.append(name)
+        return (sorted(set(models)), None) if models else ([], "No models returned by gemini.")
+
+      return [], f"Unsupported provider: {provider}"
+    except urllib.error.HTTPError as exc:
+      detail = ""
+      try:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+      except Exception:
+        detail = str(exc)
+      return [], f"HTTP {exc.code} from {provider}: {detail}"
+    except Exception as exc:
+      return [], f"Could not load models for {provider}: {exc}"
+
+
+def query_llm(
+    prompt: str,
+    provider: str,
+    model: str,
+    api_key: str,
+    base_url: str = "",
+    history: list[dict] | None = None,
+) -> tuple[str | None, str | None]:
   provider = provider.lower().strip()
+  history = history or []
   try:
     if provider == "ollama":
       model = (model or "llama3").strip()
@@ -239,24 +367,29 @@ def query_llm(prompt: str, provider: str, model: str, api_key: str, base_url: st
         text = data.get("response", "").strip()
         return (text if text else None, None if text else "Ollama returned an empty response.")
 
-    if provider == "openai":
+    if provider in {"openai", "xai", "grok", "openrouter", "llamaapi", "together", "opensource", "groq"}:
       if not api_key:
-        return None, "OpenAI API key is required."
+        return None, f"{provider} API key is required."
+      chat_url, _ = _compat_endpoint(provider, base_url)
       payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
       }).encode("utf-8")
+      headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+      if provider == "openrouter":
+        headers["HTTP-Referer"] = "https://flowtrack.local"
+        headers["X-Title"] = "Flowtrack"
       req = urllib.request.Request(
-        base_url or OPENAI_URL,
+        chat_url,
         data=payload,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers=headers,
         method="POST",
       )
-      with urllib.request.urlopen(req, timeout=120) as resp:
+      with urllib.request.urlopen(req, timeout=180) as resp:
         data = json.loads(resp.read())
         text = data["choices"][0]["message"]["content"].strip()
-        return (text if text else None, None if text else "OpenAI returned an empty response.")
+        return (text if text else None, None if text else f"{provider} returned an empty response.")
 
     if provider == "anthropic":
       if not api_key:
@@ -651,6 +784,15 @@ tr:hover td{background:rgba(255,255,255,.03)}
   overflow-y:auto;
   color:#a3a3a3;
 }
+.chat-thread{font-family:'Inter',system-ui,sans-serif;line-height:1.45;white-space:normal}
+.msg{display:flex;margin:10px 0}
+.msg.user{justify-content:flex-end}
+.msg.assistant{justify-content:flex-start}
+.msg-bubble{max-width:85%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-size:12.5px;white-space:pre-wrap;word-break:break-word}
+.msg.user .msg-bubble{background:var(--accent-dim);border-color:var(--accent-border);color:var(--text)}
+.msg.assistant .msg-bubble{background:var(--surface-2);color:var(--text)}
+.msg-meta{font-size:10px;color:var(--muted);margin-top:4px}
+.typing{color:var(--warn);font-style:italic}
 .ao-done{color:var(--text)}.ao-error{color:var(--danger)}.ao-running{color:var(--warn);animation:pulse-text 1.2s infinite}
 @keyframes pulse-text{0%,100%{opacity:1}50%{opacity:.6}}
 /* Modal */
@@ -853,19 +995,26 @@ tr:hover td{background:rgba(255,255,255,.03)}
       <select id="chatProvider" class="btn btn-muted" onchange="updateChatPlaceholders();refreshOllamaBar('chat');updateModelList('chat')" style="padding:7px 10px">
         <option value="ollama">Ollama (local, no key)</option>
         <option value="openai">OpenAI (requires API key)</option>
+        <option value="xai">xAI Grok (requires API key)</option>
+        <option value="llamaapi">LlamaAPI (requires API key)</option>
+        <option value="openrouter">OpenRouter (requires API key)</option>
+        <option value="together">Open Source API (Together)</option>
+        <option value="groq">Groq (requires API key)</option>
         <option value="anthropic">Anthropic (requires API key)</option>
         <option value="gemini">Gemini (requires API key)</option>
       </select>
       <input id="chatModel" list="chatModelList" placeholder="Model name" value="llama3" style="min-width:200px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <datalist id="chatModelList"></datalist>
+      <button class="btn btn-muted" style="font-size:11px;padding:7px 10px" onclick="updateModelList('chat', true)">↻ Models</button>
       <input id="chatApiKey" type="password" placeholder="API key (not needed for Ollama)" style="min-width:240px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
       <input id="chatBaseUrl" placeholder="Custom base URL (optional)" style="min-width:220px;flex:1;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px">
     </div>
     <div style="padding:12px 20px;border-bottom:1px solid var(--border)">
-      <textarea id="chatPrompt" placeholder="Ask anything. Example: What is my biggest distraction pattern this week and what should I change tomorrow?" style="width:100%;min-height:88px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:12px;resize:vertical"></textarea>
+      <textarea id="chatPrompt" placeholder="Ask about your focus behavior, app usage patterns, distraction triggers, routines, or Flowtrack settings." style="width:100%;min-height:88px;background:#0f172a;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:12px;resize:vertical"></textarea>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn btn-accent" onclick="chatAsk()">Send</button>
+        <button id="chatSendBtn" class="btn btn-accent" onclick="chatAsk()">Send</button>
         <button class="btn btn-muted" onclick="fillChatTemplate()">Use suggestion template</button>
+        <button class="btn btn-muted" onclick="clearChat()">Clear Chat</button>
         <button class="btn btn-yellow" onclick="verifyChatKey()" style="margin-left:auto">✓ Test Key</button>
       </div>
     </div>
@@ -875,7 +1024,7 @@ tr:hover td{background:rgba(255,255,255,.03)}
       <button class="btn btn-warn" style="font-size:11px;padding:4px 10px" onclick="ollamaFreeRAM('chat')">⬡ Free RAM</button>
     </div>
     <div id="chatKeyStatus" style="padding:0 20px 8px 20px;font-size:11px;color:var(--muted);display:none"></div>
-    <div class="analysis-output ao-done" id="chatOut">No chat yet.</div>
+    <div class="analysis-output chat-thread" id="chatOut"><div class="empty" style="padding:12px 4px">Ask your first question. Follow-ups are remembered in this session.</div></div>
   </div>
 
 </main>
@@ -1143,36 +1292,87 @@ function fillChatTemplate() {
     'Analyze my recent Flowtrack behavior and give me: 1) top 3 focus problems with numbers, 2) practical fixes for tomorrow, 3) one simple rule I should enforce.';
 }
 
+let chatHistory = [];
+const CHAT_MAX_TURNS = 12;
+
+function escHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderChat(runningText = '') {
+  const out = document.getElementById('chatOut');
+  if (!out) return;
+  const blocks = [];
+  for (const m of chatHistory) {
+    blocks.push(`<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">\
+      <div>\
+        <div class="msg-bubble">${escHtml(m.content)}</div>\
+        <div class="msg-meta">${m.role === 'user' ? 'You' : 'Flowtrack Coach'}</div>\
+      </div>\
+    </div>`);
+  }
+  if (runningText) {
+    blocks.push(`<div class="msg assistant"><div><div class="msg-bubble typing">${escHtml(runningText)}</div><div class="msg-meta">Flowtrack Coach</div></div></div>`);
+  }
+  out.innerHTML = blocks.length ? blocks.join('') : '<div class="empty" style="padding:12px 4px">Ask your first question. Follow-ups are remembered in this session.</div>';
+  out.scrollTop = out.scrollHeight;
+}
+
+function clearChat() {
+  chatHistory = [];
+  renderChat();
+}
+
 // ── Model presets per provider ───────────────────────────────────────────────
 const MODEL_PRESETS = {
   ollama:    ['llama3', 'llama3.2', 'llama3.1', 'llama3.2:1b', 'gemma3', 'gemma2', 'mistral', 'phi4', 'phi3', 'deepseek-r1', 'qwen2.5', 'codellama', 'nomic-embed-text'],
   openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-mini', 'o3-mini'],
+  xai:       ['grok-beta', 'grok-2-latest', 'grok-2-vision-latest'],
+  groq:      ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+  llamaapi:  ['llama3.1-70b', 'llama3.1-8b', 'mixtral-8x7b'],
+  openrouter:['openai/gpt-4o-mini', 'meta-llama/llama-3.1-70b-instruct', 'google/gemini-2.0-flash-001'],
+  together:  ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
   anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
   gemini:    ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
 };
 const MODEL_DEFAULTS = {
   ollama: 'llama3', openai: 'gpt-4o-mini',
+  xai: 'grok-2-latest', groq: 'llama-3.1-8b-instant', llamaapi: 'llama3.1-70b', openrouter: 'openai/gpt-4o-mini', together: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
   anthropic: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', none: '',
 };
 
-async function updateModelList(section) {
+async function updateModelList(section, forceFetch = false) {
   const provider = document.getElementById(section + 'Provider').value;
   const list = document.getElementById(section + 'ModelList');
   const modelInput = document.getElementById(section + 'Model');
+  const keyInput = document.getElementById(section + 'ApiKey');
+  const baseInput = document.getElementById(section + 'BaseUrl');
   if (!list) return;
   const presets = MODEL_PRESETS[provider] || [];
   let options = [...presets];
-  // Merge in actually-installed Ollama models so locally pulled ones appear too.
-  if (provider === 'ollama') {
-    const d = await api('/api/ollama');
-    if (d && d.models) {
+  const apiKey = keyInput ? keyInput.value.trim() : '';
+  const baseUrl = baseInput ? baseInput.value.trim() : '';
+
+  // Load real provider models when possible.
+  if (provider === 'ollama' || forceFetch || apiKey) {
+    const d = await api('/api/models', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({provider, api_key: apiKey, base_url: baseUrl}),
+    });
+    if (d && d.ok && Array.isArray(d.models)) {
       d.models.forEach(m => { if (!options.includes(m)) options.unshift(m); });
     }
   }
+
   list.innerHTML = options.map(m => `<option value="${m}">`).join('');
-  // Auto-set default when switching providers.
-  if (modelInput && MODEL_DEFAULTS[provider] !== undefined) {
-    modelInput.value = MODEL_DEFAULTS[provider];
+  // Auto-set a sensible model only when field is empty or still generic.
+  if (modelInput) {
+    const current = modelInput.value.trim();
+    const isGeneric = !current || Object.values(MODEL_DEFAULTS).includes(current);
+    if (isGeneric) {
+      modelInput.value = options[0] || MODEL_DEFAULTS[provider] || '';
+    }
   }
 }
 
@@ -1182,6 +1382,11 @@ function updateChatPlaceholders() {
   const keyPH = {
     ollama: 'Not needed for Ollama — leave empty',
     openai: 'sk-... (OpenAI API key)',
+    xai: 'xai-... (xAI API key)',
+    groq: 'gsk_... (Groq API key)',
+    llamaapi: 'LlamaAPI key',
+    openrouter: 'sk-or-... (OpenRouter API key)',
+    together: 'Together API key',
     anthropic: 'sk-ant-... (Anthropic API key)',
     gemini: 'AIza... (Google AI API key)',
   };
@@ -1195,6 +1400,11 @@ function updateAnalysisPlaceholders() {
     ollama: 'Not needed for Ollama — leave empty',
     none:   'No AI selected',
     openai: 'sk-... (OpenAI API key)',
+    xai: 'xai-... (xAI API key)',
+    groq: 'gsk_... (Groq API key)',
+    llamaapi: 'LlamaAPI key',
+    openrouter: 'sk-or-... (OpenRouter API key)',
+    together: 'Together API key',
     anthropic: 'sk-ant-... (Anthropic API key)',
     gemini: 'AIza... (Google AI API key)',
   };
@@ -1369,16 +1579,17 @@ async function chatAsk() {
   const prompt = document.getElementById('chatPrompt').value.trim();
   if (!prompt) return;
   const out = document.getElementById('chatOut');
-  const sendBtn = document.querySelector('button[onclick="chatAsk()"]');
-  out.className = 'analysis-output ao-running';
-  out.textContent = 'Thinking… 0s';
+  const sendBtn = document.getElementById('chatSendBtn');
+  chatHistory.push({role:'user', content: prompt});
+  chatHistory = chatHistory.slice(-CHAT_MAX_TURNS * 2);
+  renderChat('Thinking… 0s');
   if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '…'; }
+  document.getElementById('chatPrompt').value = '';
 
   // Elapsed-time counter so user knows it's working (Ollama on CPU can be slow).
   const t0 = Date.now();
   const ticker = setInterval(() => {
-    if (out.className.includes('ao-running'))
-      out.textContent = `Thinking… ${Math.round((Date.now()-t0)/1000)}s`;
+    renderChat(`Thinking… ${Math.round((Date.now()-t0)/1000)}s`);
   }, 1000);
 
   const controller = new AbortController();
@@ -1394,6 +1605,7 @@ async function chatAsk() {
         model: document.getElementById('chatModel').value.trim() || 'llama3',
         api_key: document.getElementById('chatApiKey').value.trim(),
         base_url: document.getElementById('chatBaseUrl').value.trim(),
+        history: chatHistory.slice(0, -1),
         prompt,
       }),
       signal: controller.signal,
@@ -1408,19 +1620,17 @@ async function chatAsk() {
   }
 
   if (!d) {
-    out.className = 'analysis-output ao-error';
-    out.textContent = 'Request timed out or no response from backend.\nFor Ollama on CPU, try a shorter prompt or switch to a cloud provider.';
+    chatHistory.push({role:'assistant', content:'Request timed out or no response from backend. For Ollama on CPU, try a shorter prompt or switch to a cloud provider.'});
+    renderChat();
     return;
   }
   if (d.ok) {
-    out.className = 'analysis-output ao-done';
-    out.textContent = d.reply;
+    chatHistory.push({role:'assistant', content:d.reply});
+    renderChat();
   } else {
-    out.className = 'analysis-output ao-error';
     const errMsg = d.error || 'Chat failed.';
-    const html = ollamaErrHtml(errMsg);
-    if (html) { out.style.fontFamily = 'inherit'; out.innerHTML = html; }
-    else { out.textContent = errMsg; }
+    chatHistory.push({role:'assistant', content:errMsg});
+    renderChat();
   }
 }
 
@@ -1459,6 +1669,25 @@ async function toggleCamera() {
 window.addEventListener('DOMContentLoaded', () => {
   const wasEnabled = localStorage.getItem('flowtrack_camera_enabled') === 'true';
   document.getElementById('cameraToggle').checked = wasEnabled;
+  const prompt = document.getElementById('chatPrompt');
+  const chatApiKey = document.getElementById('chatApiKey');
+  const chatBaseUrl = document.getElementById('chatBaseUrl');
+  if (prompt) {
+    prompt.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        chatAsk();
+      }
+    });
+  }
+  if (chatApiKey) {
+    chatApiKey.addEventListener('change', () => updateModelList('chat', true));
+    chatApiKey.addEventListener('blur', () => updateModelList('chat', true));
+  }
+  if (chatBaseUrl) {
+    chatBaseUrl.addEventListener('change', () => updateModelList('chat', true));
+    chatBaseUrl.addEventListener('blur', () => updateModelList('chat', true));
+  }
 });
 
 // ── Backup Date Range (new feature) ────────────────────────────────────────────
@@ -1910,6 +2139,16 @@ class Handler(BaseHTTPRequestHandler):
           result = sync_json_to_cloud(provider=provider, target=target, api_key=api_key)
           self._json(result)
 
+        elif path == "/api/models":
+          provider = str(body.get("provider", "ollama")).strip().lower()
+          api_key = str(body.get("api_key", ""))
+          base_url = str(body.get("base_url", ""))
+          models, err = fetch_provider_models(provider=provider, api_key=api_key, base_url=base_url)
+          if err:
+            self._json({"ok": False, "models": [], "error": err})
+          else:
+            self._json({"ok": True, "models": models})
+
         elif path == "/api/chat":
           provider = str(body.get("provider", "ollama"))
           model = str(body.get("model", "")).strip()
@@ -1922,12 +2161,34 @@ class Handler(BaseHTTPRequestHandler):
               model = "claude-3-5-sonnet-20241022"
             elif provider == "gemini":
               model = "gemini-2.0-flash"
+            elif provider in ("xai", "grok"):
+              model = "grok-2-latest"
+            elif provider == "openrouter":
+              model = "openai/gpt-4o-mini"
+            elif provider == "llamaapi":
+              model = "llama3.1-70b"
+            elif provider in ("together", "opensource"):
+              model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+            elif provider == "groq":
+              model = "llama-3.1-8b-instant"
             else:
               model = "llama3"
           prompt = str(body.get("prompt", "")).strip()
           if not prompt:
             self._json({"ok": False, "error": "Prompt is empty."}, code=400)
             return
+          raw_history = body.get("history", [])
+          history: list[dict] = []
+          if isinstance(raw_history, list):
+            for item in raw_history[-16:]:
+              if not isinstance(item, dict):
+                continue
+              role = str(item.get("role", "")).lower().strip()
+              content = str(item.get("content", "")).strip()
+              if role not in ("user", "assistant") or not content:
+                continue
+              history.append({"role": role, "content": content[:2400]})
+
           # Add short context so model responses stay grounded.
           entries = today_events()
           context = {
@@ -1935,12 +2196,24 @@ class Handler(BaseHTTPRequestHandler):
             "focus_score": _quick_focus(entries),
             "top_titles": [e.get("title", "")[:120] for e in entries[-12:]],
           }
+          convo = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history) if history else "(no prior turns)"
           final_prompt = (
-            "You are a productivity coach. Use this Flowtrack context first, then answer the user.\n"
+            "You are Flowtrack Coach.\n"
+            "Scope rules: only discuss user productivity behavior, app/window usage patterns, distraction control, routines, and Flowtrack project usage.\n"
+            "If user asks unrelated topics, briefly refuse and ask a related follow-up question.\n"
+            "Keep answers practical, concise, and actionable.\n\n"
             f"Context JSON:\n{json.dumps(context, ensure_ascii=False)}\n\n"
+            f"Conversation so far:\n{convo}\n\n"
             f"User question:\n{prompt}\n"
           )
-          reply, err = query_llm(final_prompt, provider=provider, model=model, api_key=api_key, base_url=base_url)
+          reply, err = query_llm(
+            final_prompt,
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            history=history,
+          )
           if reply:
             self._json({"ok": True, "reply": reply})
           else:
